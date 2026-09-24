@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Offline — Property Management</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fa;
+        --surface: #ffffff;
+        --text: #1a1d23;
+        --muted: #5c6570;
+        --border: #e2e6eb;
+        --primary: #1b4f72;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        padding: 24px;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 32px 28px;
+        max-width: 420px;
+        width: 100%;
+        box-shadow: 0 4px 24px rgba(26, 29, 35, 0.06);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.35rem;
+        font-weight: 600;
+      }
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        line-height: 1.5;
+        font-size: 0.95rem;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--primary);
+        background: rgba(27, 79, 114, 0.08);
+        padding: 4px 10px;
+        border-radius: 999px;
+        margin-bottom: 16px;
+      }
+      button {
+        margin-top: 8px;
+        width: 100%;
+        border: none;
+        border-radius: 8px;
+        padding: 12px 16px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        background: var(--primary);
+        color: #fff;
+        cursor: pointer;
+      }
+      button:hover { filter: brightness(1.05); }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="badge">Offline</div>
+      <h1>The server is currently unavailable</h1>
+      <p>
+        Previously synchronized information may still be available when you reopen
+        pages you have already visited.
+      </p>
+      <p>
+        Financial actions and a fresh sign-in require an internet connection.
+      </p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </div>
+  </body>
+</html>

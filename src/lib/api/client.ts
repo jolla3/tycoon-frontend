@@ -1,0 +1,167 @@
+// src/lib/api/client.ts
+//
+// The ONE place that knows how to talk to the backend. Every domain module
+// in lib/api/* calls through this — pages must never call fetch()/axios
+// directly (section 26).
+//
+// Auth: cookie-based session (`credentials: "include"`). We never read or
+// store the session cookie ourselves — the browser handles it, and it is
+// HttpOnly so JS cannot see it anyway.
+//
+// CSRF: app.js wires `issueCsrfCookie` + `csrfProtection`, and openapi.js
+// documents the `csrf-token` cookie / `X-CSRF-Token` header pairing. That
+// cookie is NOT HttpOnly (it can't be — the client has to read it to echo
+// it back), so we read it here and attach it to state-changing requests.
+// This is the ONLY place that touches the CSRF cookie.
+
+// Section 40/14 of the redesign mandate: production must fail loudly and
+// clearly if the API URL was never configured — silently falling back to
+// localhost in a deployed build would send every request nowhere and
+// surface as a confusing generic network error. Development may fall back
+// to localhost for convenience.
+function resolveApiBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (configured) return configured;
+  if (process.env.NODE_ENV !== 'production') return 'http://localhost:4000/api/v1';
+  throw new Error(
+    'NEXT_PUBLIC_API_BASE_URL is not set. This must be configured at build time for production — see .env.example.'
+  );
+}
+
+// Resolved lazily (not at module top) so an accidental missing env var in
+// production surfaces as a normal caught ApiError the first time a request
+// is actually made — not as an uncaught crash during module import, before
+// any error boundary exists to catch it.
+let cachedBaseUrl: string | null = null;
+function getApiBaseUrl(): string {
+  if (cachedBaseUrl) return cachedBaseUrl;
+  cachedBaseUrl = resolveApiBaseUrl();
+  return cachedBaseUrl;
+}
+
+export type ApiErrorKind = 'network' | 'auth' | 'forbidden' | 'validation' | 'not_found' | 'server' | 'unknown';
+
+export class ApiError extends Error {
+  code: string;
+  status: number;
+  details?: unknown;
+  kind: ApiErrorKind;
+
+  constructor(message: string, code: string, status: number, details?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.status = status;
+    this.details = details;
+    this.kind = classify(status);
+  }
+}
+
+function classify(status: number): ApiErrorKind {
+  if (status === 0) return 'network';
+  if (status === 401) return 'auth';
+  if (status === 403) return 'forbidden';
+  if (status === 404) return 'not_found';
+  if (status === 422 || status === 400) return 'validation';
+  if (status >= 500) return 'server';
+  return 'unknown';
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null; // Server Component context — no cookie header needed for CSRF on GET
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1] ?? '') : null;
+}
+
+export type QueryValue = string | number | boolean | undefined | null;
+
+type RequestOptions = {
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+  body?: unknown;
+  query?: Record<string, QueryValue>;
+  signal?: AbortSignal;
+};
+
+export function getApiHealthUrl(): string {
+  const base = getApiBaseUrl();
+  // /health is mounted at the Express app root (see app.js), not under
+  // /api/v1 — strip that suffix if present, otherwise fall back to origin.
+  const withoutApiPrefix = base.replace(/\/api\/v\d+\/?$/, '');
+  return `${withoutApiPrefix || new URL(base).origin}/health`;
+}
+
+function buildUrl(path: string, query?: RequestOptions['query']): string {
+  const url = new URL(`${getApiBaseUrl()}${path}`);
+  if (query) {
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+    }
+  }
+  return url.toString();
+}
+
+/** Shape every controller in the backend returns (apiResponse.js). */
+interface BackendEnvelope<T> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: { code: string; message: string; details?: unknown };
+}
+
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method = 'GET', body, query, signal } = options;
+
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  const isMutation = method !== 'GET';
+  if (isMutation) {
+    const csrfToken = readCookie('csrf-token');
+    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+  }
+
+  let url: string;
+  try {
+    url = buildUrl(path, query);
+  } catch (err) {
+    // Missing NEXT_PUBLIC_API_BASE_URL in production — a configuration
+    // problem, not a transient network blip, but still surfaced as a
+    // catchable ApiError rather than an uncaught exception.
+    throw new ApiError(err instanceof Error ? err.message : 'The application is not configured correctly.', 'CONFIG_ERROR', 0);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      credentials: 'include', // sends the HttpOnly session cookie — never a manual Authorization header
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal,
+    });
+  } catch {
+    throw new ApiError('Unable to connect to the server.', 'NETWORK_ERROR', 0);
+  }
+
+  let payload: BackendEnvelope<T> | undefined;
+  try {
+    payload = await response.json();
+  } catch {
+    // Non-JSON response (e.g. a proxy error page) — fall through to status-based handling below.
+  }
+
+  if (!response.ok || payload?.success === false) {
+    const code = payload?.error?.code ?? `HTTP_${response.status}`;
+    const message = payload?.error?.message ?? payload?.message ?? 'Something went wrong. Please try again.';
+    throw new ApiError(message, code, response.status, payload?.error?.details);
+  }
+
+  return payload?.data as T;
+}
+
+export const apiClient = {
+  get: <T>(path: string, query?: RequestOptions['query'], signal?: AbortSignal) => apiRequest<T>(path, { method: 'GET', query, signal }),
+  post: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'POST', body, signal }),
+  patch: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PATCH', body, signal }),
+  put: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PUT', body, signal }),
+};
