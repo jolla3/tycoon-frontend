@@ -16,7 +16,8 @@ export interface BroadcastSmsInput {
   recipientGroup: SmsRecipientGroup;
   estateId?: string;
   tenantIds?: string[];
-  message: string;
+  /** Required for custom/general; optional when type is a server template campaign */
+  message?: string;
   type?: 'broadcast' | 'billing_notification' | 'arrears_notice' | 'rent_reminder';
   period?: string;
   forceResend?: boolean;

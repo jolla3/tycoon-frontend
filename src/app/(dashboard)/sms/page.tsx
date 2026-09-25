@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
   Stack,
@@ -26,7 +26,6 @@ import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { smsApi, type SmsRecipientGroup } from '@/lib/api/sms';
 import { tenantsApi } from '@/lib/api/tenants';
 import { housesApi } from '@/lib/api/houses';
-import { useQuery } from '@tanstack/react-query';
 import { dateFormat } from '@/lib/dates/period';
 import { ApiError } from '@/lib/api/client';
 import { useCachedQuery } from '@/hooks/use-cached-query';
@@ -35,8 +34,9 @@ import { identityKeyFromUser } from '@/lib/session/local-session-marker';
 import { useVisibleEstates } from '@/features/estates/use-visible-estates';
 import { useConnectivity } from '@/lib/sync/connectivity';
 import { permissions } from '@/lib/permissions/permissions';
-import { readListScopeEstate } from '@/lib/navigation/workspace';
 import type { SmsMessage } from '@/types/api';
+
+type SmsCampaignType = 'broadcast' | 'billing_notification' | 'arrears_notice' | 'rent_reminder';
 
 const STATUS_COLOR: Record<SmsMessage['status'], 'success' | 'error' | 'warning' | 'default'> = {
   sent: 'success',
@@ -49,9 +49,16 @@ const STATUS_COLOR: Record<SmsMessage['status'], 'success' | 'error' | 'warning'
 const GROUP_LABELS: Record<SmsRecipientGroup, string> = {
   ALL_TENANTS: 'All active tenants',
   ESTATE: 'One estate',
-  SELECTED_TENANTS: 'Selected tenants (IDs)',
-  ARREARS: 'Balance outstanding (ARREARS)',
-  OUTSTANDING: 'Balance outstanding (OUTSTANDING)',
+  SELECTED_TENANTS: 'Selected tenants',
+  ARREARS: 'Rent arrears (outstanding balance)',
+  OUTSTANDING: 'Outstanding balance',
+};
+
+const CAMPAIGN_LABELS: Record<SmsCampaignType, string> = {
+  arrears_notice: 'Rent arrears',
+  rent_reminder: 'Rent reminder',
+  billing_notification: 'Outstanding / billing notice',
+  broadcast: 'General announcement / custom message',
 };
 
 export default function SmsPage() {
@@ -59,7 +66,8 @@ export default function SmsPage() {
   const queryClient = useQueryClient();
   const { user } = useSession();
   const identity = user ? identityKeyFromUser(user) : 'anon';
-  const canBroadcast = user ? permissions.canManageTenants(user.role) || permissions.canManageEstates(user.role) : false;
+  const canBroadcast =
+    user ? permissions.canManageTenants(user.role) || permissions.canManageEstates(user.role) : false;
 
   const { data, isLoading, error, freshness, cachedAt } = useCachedQuery(
     `${identity}:sms:history`,
@@ -68,42 +76,56 @@ export default function SmsPage() {
   );
 
   const columns: DataTableColumn<SmsMessage>[] = [
-    { key: 'phone', header: 'Recipient', render: (m) => m.phoneNumber },
-    {
-      key: 'message',
-      header: 'Message',
-      render: (m) => (m.message.length > 60 ? `${m.message.slice(0, 60)}…` : m.message),
-    },
+    { key: 'phone', header: 'Recipient', render: (m) => m.phoneNumber || '—' },
     {
       key: 'status',
       header: 'Status',
-      render: (m) => <Chip size="small" label={m.status} color={STATUS_COLOR[m.status]} variant="outlined" />,
+      render: (m) => (
+        <Chip size="small" label={m.status} color={STATUS_COLOR[m.status] ?? 'default'} variant="outlined" />
+      ),
     },
-    { key: 'sent', header: 'Sent', render: (m) => (m.sentAt ? dateFormat(m.sentAt, 'DD MMM, HH:mm') : '—') },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (m) => m.type || '—',
+    },
+    {
+      key: 'message',
+      header: 'Message',
+      render: (m) => (
+        <Typography variant="body2" sx={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {m.message}
+        </Typography>
+      ),
+    },
+    {
+      key: 'date',
+      header: 'Queued / sent',
+      render: (m) => (m.createdAt || m.sentAt ? dateFormat(m.createdAt || m.sentAt!, 'DD MMM, HH:mm') : '—'),
+    },
   ];
 
   return (
     <>
-      <PageHeader title="SMS" description="Send messages, broadcast to tenant groups, preview templates, and review delivery history" />
-      {freshness !== 'live' ? (
+      <PageHeader
+        title="SMS"
+        description="Send messages, run template campaigns, preview templates, and review delivery history"
+      />
+
+      {freshness !== 'live' && (
         <Box sx={{ mb: 1.5 }}>
           <FreshnessBadge freshness={freshness} cachedAt={cachedAt} />
         </Box>
-      ) : null}
+      )}
 
-      <Card sx={{ mb: 2 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto">
-          <Tab label="Single send" />
-          <Tab label="Broadcast" disabled={!canBroadcast} />
-          <Tab label="Preview" />
-          <Tab label="History" />
-        </Tabs>
-      </Card>
+      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+        <Tab label="History" />
+        <Tab label="Send one" />
+        {canBroadcast ? <Tab label="Campaign" /> : null}
+        <Tab label="Preview" />
+      </Tabs>
 
-      {tab === 0 && <SingleSendForm onQueued={() => queryClient.invalidateQueries({ queryKey: ['sms', 'history'] })} />}
-      {tab === 1 && canBroadcast && <BroadcastForm onQueued={() => queryClient.invalidateQueries({ queryKey: ['sms', 'history'] })} />}
-      {tab === 2 && <PreviewForm />}
-      {tab === 3 && (
+      {tab === 0 && (
         <Card>
           <DataTable
             columns={columns}
@@ -113,73 +135,68 @@ export default function SmsPage() {
             error={error}
             emptyIcon={MessageSquare}
             emptyTitle="No SMS history"
-            emptyDescription="Queued and sent messages will appear here."
+            emptyDescription="Queued and sent messages appear here."
             renderMobileCard={(m) => (
               <Card variant="outlined" sx={{ p: 2 }}>
-                <Stack direction="row" justifyContent="space-between">
-                  <Typography fontWeight={600}>{m.phoneNumber}</Typography>
-                  <Chip size="small" label={m.status} color={STATUS_COLOR[m.status]} variant="outlined" />
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography fontWeight={600}>{m.phoneNumber || '—'}</Typography>
+                  <Chip size="small" label={m.status} color={STATUS_COLOR[m.status] ?? 'default'} variant="outlined" />
                 </Stack>
-                <Typography variant="body2" color="text.secondary">
-                  {m.message.slice(0, 80)}
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {m.message}
                 </Typography>
               </Card>
             )}
           />
         </Card>
       )}
+
+      {tab === 1 && <SendOneForm onQueued={() => queryClient.invalidateQueries({ queryKey: ['sms', 'history'] })} />}
+
+      {tab === 2 && canBroadcast && (
+        <BroadcastForm onQueued={() => queryClient.invalidateQueries({ queryKey: ['sms', 'history'] })} />
+      )}
+
+      {tab === (canBroadcast ? 3 : 2) && <PreviewForm />}
     </>
   );
 }
 
-function SingleSendForm({ onQueued }: { onQueued: () => void }) {
+function SendOneForm({ onQueued }: { onQueued: () => void }) {
   const connectivity = useConnectivity();
   const canReach = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
-  const { data: tenants } = useQuery({
-    queryKey: ['tenants', 'sms-single'],
-    queryFn: () => tenantsApi.list(),
-  });
   const [tenantId, setTenantId] = useState('');
   const [message, setMessage] = useState('');
   const [forceResend, setForceResend] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
-  const activeTenants = useMemo(
-    () => (tenants ?? []).filter((t) => t.status === 'active'),
-    [tenants]
-  );
+  const { data: tenants } = useQuery({
+    queryKey: ['tenants', 'for-sms-one'],
+    queryFn: () => tenantsApi.list(),
+  });
+  const activeTenants = (tenants ?? []).filter((t) => t.status === 'active');
 
   const send = useMutation({
-    mutationFn: () => {
-      if (!tenantId) throw new Error('Select a tenant');
-      return smsApi.send({ tenantId, message, forceResend });
-    },
-    onSuccess: (data) => {
-      setResult(
-        `Message ${data.status || 'queued'} (job ${String(data.jobId).slice(-8)}). Not marked sent until the provider confirms delivery.`
-      );
-      setTenantId('');
+    mutationFn: () => smsApi.send({ tenantId, message, forceResend }),
+    onSuccess: () => {
+      setResult('Message queued.');
       setMessage('');
       onQueued();
     },
-    onError: (err) =>
-      setFormError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Unable to queue this message.'),
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Unable to queue message.'),
   });
 
   return (
     <Card sx={{ p: 2 }}>
-      <Stack spacing={2} maxWidth={560}>
-        {!canReach ? <Alert severity="warning">An internet connection is required to send SMS.</Alert> : null}
+      <Stack spacing={2} maxWidth={640}>
+        {!canReach ? <Alert severity="warning">An internet connection is required to queue SMS.</Alert> : null}
         {formError ? <Alert severity="error">{formError}</Alert> : null}
         {result ? <Alert severity="info">{result}</Alert> : null}
-        <Select
-          displayEmpty
-          value={tenantId}
-          onChange={(e) => setTenantId(e.target.value)}
-          fullWidth
-        >
-          <MenuItem value="">Select tenant</MenuItem>
+        <Select displayEmpty value={tenantId} onChange={(e) => setTenantId(e.target.value)} fullWidth>
+          <MenuItem value="" disabled>
+            Select tenant
+          </MenuItem>
           {activeTenants.map((t) => (
             <MenuItem key={t._id} value={t._id}>
               {t.name} · {t.phone}
@@ -193,6 +210,7 @@ function SingleSendForm({ onQueued }: { onQueued: () => void }) {
           required
           multiline
           minRows={3}
+          fullWidth
         />
         <FormControlLabel
           control={<Checkbox checked={forceResend} onChange={(e) => setForceResend(e.target.checked)} />}
@@ -222,20 +240,15 @@ function BroadcastForm({ onQueued }: { onQueued: () => void }) {
   const [group, setGroup] = useState<SmsRecipientGroup>('ALL_TENANTS');
   const [estateId, setEstateId] = useState('');
   const [tenantIdsRaw, setTenantIdsRaw] = useState('');
-
-  useEffect(() => {
-    const scoped = readListScopeEstate();
-    if (scoped) {
-      setEstateId(scoped);
-      setGroup('ESTATE');
-    }
-  }, []);
   const [message, setMessage] = useState('');
   const [forceResend, setForceResend] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
-  const [msgType, setMsgType] = useState<'broadcast' | 'rent_reminder' | 'billing_notification' | 'arrears_notice'>('broadcast');
-  const [broadcastPreview, setBroadcastPreview] = useState<string | null>(null);
+  const [msgType, setMsgType] = useState<SmsCampaignType>('broadcast');
+  const [previewText, setPreviewText] = useState<string | null>(null);
+
+  const isTemplateCampaign =
+    msgType === 'billing_notification' || msgType === 'arrears_notice' || msgType === 'rent_reminder';
 
   const tenantIds = useMemo(
     () =>
@@ -246,6 +259,31 @@ function BroadcastForm({ onQueued }: { onQueued: () => void }) {
     [tenantIdsRaw]
   );
 
+  const broadcast = useMutation({
+    mutationFn: () =>
+      smsApi.broadcast({
+        recipientGroup: group,
+        estateId:
+          group === 'ESTATE' || group === 'ARREARS' || group === 'OUTSTANDING'
+            ? estateId || undefined
+            : undefined,
+        tenantIds: group === 'SELECTED_TENANTS' ? tenantIds : undefined,
+        message: isTemplateCampaign ? message || undefined : message,
+        type: msgType,
+        forceResend,
+      }),
+    onSuccess: (data) => {
+      const resolved = data.recipientsResolved ?? data.messagesQueued ?? '—';
+      setResult(
+        `Campaign queued (ref ${String(data.broadcastId || '').slice(-10) || '—'}). Recipients resolved / messages queued: ${resolved}. Status remains queued until delivery is confirmed.`
+      );
+      setMessage('');
+      setPreviewText(null);
+      onQueued();
+    },
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Unable to queue campaign.'),
+  });
+
   const previewRun = useMutation({
     mutationFn: () =>
       smsApi.preview({
@@ -253,57 +291,67 @@ function BroadcastForm({ onQueued }: { onQueued: () => void }) {
           msgType === 'broadcast'
             ? 'billing_notification'
             : (msgType as 'rent_reminder' | 'billing_notification' | 'arrears_notice'),
-        period: undefined,
-        tenantName: 'Sample Tenant',
-        houseNumber: 'A01',
-      }),
-    onSuccess: (data) =>
-      setBroadcastPreview(
-        `Message type: ${msgType}\nRecipient group: ${group}\n---\n${data.message || JSON.stringify(data)}\n---\nYour free-text message:\n${message}`
-      ),
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Preview failed'),
-  });
-
-  const broadcast = useMutation({
-    mutationFn: () =>
-      smsApi.broadcast({
-        recipientGroup: group,
-        estateId: group === 'ESTATE' || group === 'ARREARS' || group === 'OUTSTANDING' ? estateId || undefined : undefined,
-        tenantIds: group === 'SELECTED_TENANTS' ? tenantIds : undefined,
-        message,
-        type: msgType,
-        forceResend,
       }),
     onSuccess: (data) => {
-      const resolved = data.recipientsResolved ?? data.messagesQueued ?? '—';
-      setResult(
-        `Broadcast queued (ref ${String(data.broadcastId || '').slice(-10) || '—'}). Recipients resolved / messages queued: ${resolved}. Status remains queued until delivery is confirmed.`
+      setPreviewText(
+        `Campaign: ${CAMPAIGN_LABELS[msgType]}\nRecipient group: ${GROUP_LABELS[group]}\n---\n${data.message || JSON.stringify(data)}\n---\nPreview does not send SMS.`
       );
-      setMessage('');
-      onQueued();
     },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Unable to queue broadcast.'),
+    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Unable to generate preview.'),
   });
+
+  const canQueue =
+    (isTemplateCampaign || Boolean(message.trim())) &&
+    !broadcast.isPending &&
+    canReach &&
+    !(group === 'ESTATE' && !estateId) &&
+    !(group === 'SELECTED_TENANTS' && tenantIds.length === 0);
 
   return (
     <Card sx={{ p: 2 }}>
       <Stack spacing={2} maxWidth={640}>
-        {!canReach ? <Alert severity="warning">An internet connection is required for SMS broadcast.</Alert> : null}
+        {!canReach ? (
+          <Alert severity="warning">An internet connection is required for SMS campaigns.</Alert>
+        ) : null}
         <Alert severity="info">
-          ARREARS and OUTSTANDING currently resolve to the same balance-based population on the backend (houses with unpaid/partial RentCharge balance). The UI does not invent a business distinction.
+          Automated campaigns (arrears, reminder, billing) use server templates and do not require a manual message.
+          Custom / general announcements require message text. Preview never sends.
         </Alert>
         {formError ? <Alert severity="error">{formError}</Alert> : null}
         {result ? <Alert severity="info">{result}</Alert> : null}
-        <Select value={group} onChange={(e) => setGroup(e.target.value as SmsRecipientGroup)} fullWidth>
+
+        <Typography variant="subtitle2">Campaign type</Typography>
+        <Select
+          value={msgType}
+          onChange={(e) => setMsgType(e.target.value as SmsCampaignType)}
+          fullWidth
+          displayEmpty
+        >
+          {(Object.keys(CAMPAIGN_LABELS) as SmsCampaignType[]).map((key) => (
+            <MenuItem key={key} value={key}>
+              {CAMPAIGN_LABELS[key]}
+            </MenuItem>
+          ))}
+        </Select>
+
+        <Typography variant="subtitle2">Recipients</Typography>
+        <Select
+          value={group}
+          onChange={(e) => setGroup(e.target.value as SmsRecipientGroup)}
+          fullWidth
+        >
           {(Object.keys(GROUP_LABELS) as SmsRecipientGroup[]).map((g) => (
             <MenuItem key={g} value={g}>
               {GROUP_LABELS[g]}
             </MenuItem>
           ))}
         </Select>
+
         {(group === 'ESTATE' || group === 'ARREARS' || group === 'OUTSTANDING') && (
           <Select displayEmpty value={estateId} onChange={(e) => setEstateId(e.target.value)} fullWidth>
-            <MenuItem value="">{group === 'ESTATE' ? 'Select estate (required)' : 'All estates (optional filter)'}</MenuItem>
+            <MenuItem value="">
+              {group === 'ESTATE' ? 'Select estate (required)' : 'All estates (optional filter)'}
+            </MenuItem>
             {estates?.map((e) => (
               <MenuItem key={e._id} value={e._id}>
                 {e.name}
@@ -311,36 +359,38 @@ function BroadcastForm({ onQueued }: { onQueued: () => void }) {
             ))}
           </Select>
         )}
+
         {group === 'SELECTED_TENANTS' && (
           <TenantMultiSelect selectedIds={tenantIds} onChange={(ids) => setTenantIdsRaw(ids.join(','))} />
         )}
-        <Select
-          value={msgType}
-          onChange={(e) => setMsgType(e.target.value)}
+
+        <TextField
+          label={isTemplateCampaign ? 'Message (optional — server renders template)' : 'Message'}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          required={!isTemplateCampaign}
+          multiline
+          minRows={4}
           fullWidth
-          displayEmpty
-        >
-          <MenuItem value="broadcast">General announcement</MenuItem>
-          <MenuItem value="rent_reminder">Rent reminder</MenuItem>
-          <MenuItem value="billing_notification">Billing / outstanding</MenuItem>
-          <MenuItem value="arrears_notice">Arrears warning</MenuItem>
-        </Select>
-        <TextField label="Message" value={message} onChange={(e) => setMessage(e.target.value)} required multiline minRows={4} fullWidth helperText="Required for general/custom only. Automated campaigns render per-tenant on the server — leave blank." />
-        <Typography variant="caption" color="text.secondary">
-          Estimated SMS segments (160 chars GSM): {message ? Math.max(1, Math.ceil(message.length / 160)) : 0}
-          {group === 'SELECTED_TENANTS' ? ` · selected recipients: ${tenantIds.length}` : ''}
-        </Typography>
+          helperText={
+            isTemplateCampaign
+              ? 'Leave blank for automated campaigns; the backend renders the template per tenant.'
+              : 'Required for general / custom announcements.'
+          }
+        />
+
         <FormControlLabel
           control={<Checkbox checked={forceResend} onChange={(e) => setForceResend(e.target.checked)} />}
           label="Force resend (explicit backend override of notification deduplication)"
         />
-        <Stack direction="row" spacing={1}>
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
           <Button
             variant="outlined"
-            disabled={!message || previewRun.isPending || !canReach}
+            disabled={previewRun.isPending || !canReach}
             onClick={() => {
               setFormError(null);
-              setBroadcastPreview(null);
+              setPreviewText(null);
               previewRun.mutate();
             }}
           >
@@ -349,28 +399,29 @@ function BroadcastForm({ onQueued }: { onQueued: () => void }) {
           <Button
             variant="contained"
             startIcon={<Send size={16} />}
-            disabled={
-              !message ||
-              broadcast.isPending ||
-              !canReach ||
-              (group === 'ESTATE' && !estateId) ||
-              (group === 'SELECTED_TENANTS' && tenantIds.length === 0)
-            }
+            disabled={!canQueue}
             onClick={() => {
               setFormError(null);
               setResult(null);
               broadcast.mutate();
             }}
           >
-            {!canReach ? 'Offline' : broadcast.isPending ? 'Queueing broadcast…' : 'Confirm & Queue'}
+            {!canReach ? 'Offline' : broadcast.isPending ? 'Queueing…' : 'Confirm & Queue'}
           </Button>
         </Stack>
-        {broadcastPreview ? (
-          <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, whiteSpace: 'pre-wrap', fontFamily: '"IBM Plex Mono", monospace', fontSize: 13 }}>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-              Preview only — no SMS was sent
-            </Typography>
-            {broadcastPreview}
+
+        {previewText ? (
+          <Box
+            sx={{
+              p: 2,
+              bgcolor: 'grey.50',
+              borderRadius: 1,
+              whiteSpace: 'pre-wrap',
+              fontFamily: '"IBM Plex Mono", monospace',
+              fontSize: 13,
+            }}
+          >
+            {previewText}
           </Box>
         ) : null}
       </Stack>
@@ -387,7 +438,9 @@ function PreviewForm() {
   });
   const [tenantName, setTenantName] = useState('');
   const [houseNumber, setHouseNumber] = useState('');
-  const [template, setTemplate] = useState<'billing_notification' | 'rent_reminder' | 'arrears_notice' | 'payment_confirmation'>('billing_notification');
+  const [template, setTemplate] = useState<'billing_notification' | 'rent_reminder' | 'arrears_notice'>(
+    'billing_notification'
+  );
   const [preview, setPreview] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -411,15 +464,30 @@ function PreviewForm() {
         </Typography>
         {!canReach ? <Alert severity="warning">Preview requires connectivity to the server.</Alert> : null}
         {formError ? <Alert severity="error">{formError}</Alert> : null}
-        <Select value={template} onChange={(e) => setTemplate(e.target.value as typeof template)} fullWidth>
+        <Select
+          value={template}
+          onChange={(e) =>
+            setTemplate(e.target.value as 'billing_notification' | 'rent_reminder' | 'arrears_notice')
+          }
+          fullWidth
+        >
           <MenuItem value="billing_notification">Billing notification</MenuItem>
           <MenuItem value="rent_reminder">Rent reminder</MenuItem>
-          <MenuItem value="arrears_notice">Arrears warning</MenuItem>
-          <MenuItem value="payment_confirmation">Payment confirmation</MenuItem>
+          <MenuItem value="arrears_notice">Arrears notice</MenuItem>
         </Select>
-        <TextField label="Period (YYYY-MM)" value={period} onChange={(e) => setPeriod(e.target.value)} />
-        <TextField label="Tenant name (optional override)" value={tenantName} onChange={(e) => setTenantName(e.target.value)} />
-        <TextField label="House number (optional override)" value={houseNumber} onChange={(e) => setHouseNumber(e.target.value)} />
+        <TextField label="Period (YYYY-MM)" value={period} onChange={(e) => setPeriod(e.target.value)} fullWidth />
+        <TextField
+          label="Tenant name (optional override)"
+          value={tenantName}
+          onChange={(e) => setTenantName(e.target.value)}
+          fullWidth
+        />
+        <TextField
+          label="House number (optional override)"
+          value={houseNumber}
+          onChange={(e) => setHouseNumber(e.target.value)}
+          fullWidth
+        />
         <Button
           variant="outlined"
           disabled={run.isPending || !canReach}
@@ -435,7 +503,16 @@ function PreviewForm() {
           <>
             <Divider />
             <Typography variant="subtitle2">Generated message</Typography>
-            <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1, whiteSpace: 'pre-wrap', fontFamily: '"IBM Plex Mono", monospace', fontSize: 13 }}>
+            <Box
+              sx={{
+                p: 2,
+                bgcolor: 'grey.50',
+                borderRadius: 1,
+                whiteSpace: 'pre-wrap',
+                fontFamily: '"IBM Plex Mono", monospace',
+                fontSize: 13,
+              }}
+            >
               {preview}
             </Box>
           </>
@@ -445,8 +522,13 @@ function PreviewForm() {
   );
 }
 
-
-function TenantMultiSelect({ selectedIds, onChange }: { selectedIds: string[]; onChange: (ids: string[]) => void }) {
+function TenantMultiSelect({
+  selectedIds,
+  onChange,
+}: {
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}) {
   const { data: tenants, isLoading } = useQuery({
     queryKey: ['tenants', 'for-sms-select'],
     queryFn: () => tenantsApi.list(),
@@ -464,10 +546,25 @@ function TenantMultiSelect({ selectedIds, onChange }: { selectedIds: string[]; o
   };
 
   if (isLoading) return <Typography variant="body2">Loading tenants…</Typography>;
-  if (!active.length) return <Typography variant="body2" color="text.secondary">No active tenants available.</Typography>;
+  if (!active.length) {
+    return (
+      <Typography variant="body2" color="text.secondary">
+        No active tenants available.
+      </Typography>
+    );
+  }
 
   return (
-    <Box sx={{ maxHeight: 240, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1 }}>
+    <Box
+      sx={{
+        maxHeight: 240,
+        overflow: 'auto',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
+        p: 1,
+      }}
+    >
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
         Select tenants by name / house. Internal IDs are sent to the API only.
       </Typography>
@@ -475,7 +572,9 @@ function TenantMultiSelect({ selectedIds, onChange }: { selectedIds: string[]; o
         {active.map((t) => (
           <FormControlLabel
             key={t._id}
-            control={<Checkbox size="small" checked={selectedIds.includes(t._id)} onChange={() => toggle(t._id)} />}
+            control={
+              <Checkbox size="small" checked={selectedIds.includes(t._id)} onChange={() => toggle(t._id)} />
+            }
             label={`${t.name} · ${houseMap.get(t.houseId) ?? 'House'} · ${t.phone}`}
           />
         ))}

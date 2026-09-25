@@ -5,7 +5,17 @@ import { openWorkspace } from '@/lib/navigation/workspace';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card, Button, Stack, TextField, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Chip, Typography,
+  Card,
+  Button,
+  Stack,
+  TextField,
+  Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Chip,
+  Typography,
 } from '@mui/material';
 import { Layers, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
@@ -33,16 +43,30 @@ export default function HouseTypesPage() {
   });
 
   const columns: DataTableColumn<HouseType>[] = [
-    { key: 'name', header: 'Name', render: (t) => (
-        <span style={{ fontWeight: 600, cursor: 'pointer' }} onClick={() => openWorkspace('houseType', t._id, router)}>{t.name}</span>
-      ) },
+    {
+      key: 'name',
+      header: 'Name',
+      render: (t) => (
+        <span
+          style={{ fontWeight: 600, cursor: 'pointer' }}
+          onClick={() => openWorkspace('houseType', t._id, router)}
+        >
+          {t.name}
+        </span>
+      ),
+    },
     { key: 'rent', header: 'Default rent', render: (t) => formatCents(t.defaultRentCents ?? 0) },
     { key: 'houses', header: 'Houses', render: (t) => t.houseCount ?? 0 },
     {
       key: 'status',
       header: 'Status',
       render: (t) => (
-        <Chip size="small" label={t.isActive ? 'Active' : 'Inactive'} color={t.isActive ? 'success' : 'default'} variant="outlined" />
+        <Chip
+          size="small"
+          label={t.isActive ? 'Active' : 'Inactive'}
+          color={t.isActive ? 'success' : 'default'}
+          variant="outlined"
+        />
       ),
     },
     {
@@ -60,7 +84,12 @@ export default function HouseTypesPage() {
         description="Classify units. Defaults apply to new houses only — history is never rewritten."
         actions={
           canManage ? (
-            <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setCreateOpen(true)} disabled={!canReach}>
+            <Button
+              variant="contained"
+              startIcon={<Plus size={16} />}
+              onClick={() => setCreateOpen(true)}
+              disabled={!canReach}
+            >
               New type
             </Button>
           ) : null
@@ -76,6 +105,39 @@ export default function HouseTypesPage() {
           emptyIcon={Layers}
           emptyTitle="No house types yet"
           emptyDescription="Create types so new houses can inherit default rent and billing."
+          onRowClick={(t) => openWorkspace('houseType', t._id, router)}
+          renderMobileCard={(t) => (
+            <Card
+              variant="outlined"
+              sx={{ p: 2 }}
+              onClick={() => openWorkspace('houseType', t._id, router)}
+            >
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography fontWeight={600}>{t.name}</Typography>
+                <Chip
+                  size="small"
+                  label={t.isActive ? 'Active' : 'Inactive'}
+                  color={t.isActive ? 'success' : 'default'}
+                  variant="outlined"
+                />
+              </Stack>
+              <Typography variant="body2" color="text.secondary">
+                Default rent {formatCents(t.defaultRentCents ?? 0)} · {t.houseCount ?? 0} house(s)
+              </Typography>
+              {canManage ? (
+                <Button
+                  size="small"
+                  sx={{ mt: 1 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditing(t);
+                  }}
+                >
+                  Edit
+                </Button>
+              ) : null}
+            </Card>
+          )}
         />
       </Card>
       {createOpen && (
@@ -122,12 +184,16 @@ function HouseTypeDialog({
     const line = initial?.defaultBilling?.find((b) => b.chargeType === 'WATER');
     return line ? String(line.amountCents / 100) : '';
   });
-  const [waterOn, setWaterOn] = useState(() => Boolean(initial?.defaultBilling?.find((b) => b.chargeType === 'WATER' && b.amountCents > 0)));
+  const [waterOn, setWaterOn] = useState(() =>
+    Boolean(initial?.defaultBilling?.find((b) => b.chargeType === 'WATER' && b.amountCents > 0))
+  );
   const [elecKes, setElecKes] = useState(() => {
     const line = initial?.defaultBilling?.find((b) => b.chargeType === 'ELECTRICITY');
     return line ? String(line.amountCents / 100) : '';
   });
-  const [elecOn, setElecOn] = useState(() => Boolean(initial?.defaultBilling?.find((b) => b.chargeType === 'ELECTRICITY' && b.amountCents > 0)));
+  const [elecOn, setElecOn] = useState(() =>
+    Boolean(initial?.defaultBilling?.find((b) => b.chargeType === 'ELECTRICITY' && b.amountCents > 0))
+  );
   const [customLines, setCustomLines] = useState<{ label: string; amountKes: string; enabled: boolean }[]>(() => {
     const others = (initial?.defaultBilling ?? []).filter((b) => b.chargeType === 'OTHER');
     if (others.length === 0) return [{ label: '', amountKes: '', enabled: false }];
@@ -146,7 +212,12 @@ function HouseTypeDialog({
       const day = dueDay ? Math.min(31, Math.max(1, Number(dueDay))) : 30;
       const defaultBilling: CreateHouseTypeInput['defaultBilling'] = [];
       if (defaultRentCents > 0) {
-        defaultBilling!.push({ chargeType: 'RENT', description: 'Rent', amountCents: defaultRentCents, dueDay: day });
+        defaultBilling!.push({
+          chargeType: 'RENT',
+          description: 'Rent',
+          amountCents: defaultRentCents,
+          dueDay: day,
+        });
       }
       if (waterOn && Number(waterKes) > 0) {
         defaultBilling!.push({
@@ -208,9 +279,20 @@ function HouseTypeDialog({
         <Stack spacing={2} sx={{ mt: 1 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
           <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
-          <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} multiline minRows={2} />
+          <TextField
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            multiline
+            minRows={2}
+          />
           <Typography variant="subtitle2">Monthly rent template</Typography>
-          <TextField label="Default monthly rent (KES)" type="number" value={rentKes} onChange={(e) => setRentKes(e.target.value)} />
+          <TextField
+            label="Default monthly rent (KES)"
+            type="number"
+            value={rentKes}
+            onChange={(e) => setRentKes(e.target.value)}
+          />
           <TextField
             label="Due day of month"
             type="number"
@@ -221,12 +303,34 @@ function HouseTypeDialog({
           />
           <Typography variant="subtitle2">Common charges</Typography>
           <Stack direction="row" spacing={1} alignItems="center">
-            <Chip label={waterOn ? 'Water on' : 'Water off'} color={waterOn ? 'primary' : 'default'} onClick={() => setWaterOn((v) => !v)} />
-            <TextField size="small" label="Water (KES)" type="number" value={waterKes} onChange={(e) => setWaterKes(e.target.value)} disabled={!waterOn} />
+            <Chip
+              label={waterOn ? 'Water on' : 'Water off'}
+              color={waterOn ? 'primary' : 'default'}
+              onClick={() => setWaterOn((v) => !v)}
+            />
+            <TextField
+              size="small"
+              label="Water (KES)"
+              type="number"
+              value={waterKes}
+              onChange={(e) => setWaterKes(e.target.value)}
+              disabled={!waterOn}
+            />
           </Stack>
           <Stack direction="row" spacing={1} alignItems="center">
-            <Chip label={elecOn ? 'Electricity on' : 'Electricity off'} color={elecOn ? 'primary' : 'default'} onClick={() => setElecOn((v) => !v)} />
-            <TextField size="small" label="Electricity (KES)" type="number" value={elecKes} onChange={(e) => setElecKes(e.target.value)} disabled={!elecOn} />
+            <Chip
+              label={elecOn ? 'Electricity on' : 'Electricity off'}
+              color={elecOn ? 'primary' : 'default'}
+              onClick={() => setElecOn((v) => !v)}
+            />
+            <TextField
+              size="small"
+              label="Electricity (KES)"
+              type="number"
+              value={elecKes}
+              onChange={(e) => setElecKes(e.target.value)}
+              disabled={!elecOn}
+            />
           </Stack>
           <Typography variant="subtitle2">Custom recurring lines</Typography>
           <Typography variant="caption" color="text.secondary">
@@ -287,7 +391,14 @@ function HouseTypeDialog({
           </Button>
         )}
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={!name.trim() || mutation.isPending} onClick={() => { setFormError(null); mutation.mutate(); }}>
+        <Button
+          variant="contained"
+          disabled={!name.trim() || mutation.isPending}
+          onClick={() => {
+            setFormError(null);
+            mutation.mutate();
+          }}
+        >
           {mutation.isPending ? 'Saving…' : 'Save'}
         </Button>
       </DialogActions>

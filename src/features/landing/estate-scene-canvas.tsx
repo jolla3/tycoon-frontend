@@ -2,6 +2,7 @@
 
 // Architectural estate illustration — light materials, windows, cyan data arcs.
 // Lazy-loaded only on the landing page; respects reduced-motion via parent.
+// Note: do not use JSX <line> — it maps to SVG in TypeScript, not THREE.Line.
 
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
@@ -37,7 +38,6 @@ function Building({ x, z, h, w, d }: { x: number; z: number; h: number; w: numbe
         <boxGeometry args={[w, h, d]} />
         <meshStandardMaterial color="#e8eef3" roughness={0.55} metalness={0.08} />
       </mesh>
-      {/* roof cap */}
       <mesh position={[0, h + 0.04, 0]}>
         <boxGeometry args={[w * 1.05, 0.08, d * 1.05]} />
         <meshStandardMaterial color="#c5d4de" roughness={0.7} />
@@ -45,7 +45,13 @@ function Building({ x, z, h, w, d }: { x: number; z: number; h: number; w: numbe
       {windows.map((win, i) => (
         <mesh key={i} position={[win.px, win.py - h / 2 + h / 2, win.pz]}>
           <planeGeometry args={[0.18, 0.22]} />
-          <meshStandardMaterial color="#48CAE4" emissive="#0096C7" emissiveIntensity={0.35} transparent opacity={0.85} />
+          <meshStandardMaterial
+            color="#48CAE4"
+            emissive="#0096C7"
+            emissiveIntensity={0.35}
+            transparent
+            opacity={0.85}
+          />
         </mesh>
       ))}
     </group>
@@ -72,12 +78,34 @@ function Path() {
 
 function DataArcs() {
   const ref = useRef<THREE.Group>(null);
-  const curves = useMemo(() => {
-    return [
-      new THREE.QuadraticBezierCurve3(new THREE.Vector3(-3.2, 1.2, 0), new THREE.Vector3(-1, 2.4, 0.5), new THREE.Vector3(0, 1.5, -0.4)),
-      new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, 1.6, -0.4), new THREE.Vector3(1.2, 2.8, 0.2), new THREE.Vector3(1.8, 2.0, 0.3)),
-      new THREE.QuadraticBezierCurve3(new THREE.Vector3(1.8, 2.1, 0.3), new THREE.Vector3(2.6, 2.6, 0), new THREE.Vector3(3.3, 1.3, -0.2)),
+
+  const lines = useMemo(() => {
+    const curves = [
+      new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(-3.2, 1.2, 0),
+        new THREE.Vector3(-1, 2.4, 0.5),
+        new THREE.Vector3(0, 1.5, -0.4)
+      ),
+      new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(0, 1.6, -0.4),
+        new THREE.Vector3(1.2, 2.8, 0.2),
+        new THREE.Vector3(1.8, 2.0, 0.3)
+      ),
+      new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(1.8, 2.1, 0.3),
+        new THREE.Vector3(2.6, 2.6, 0),
+        new THREE.Vector3(3.3, 1.3, -0.2)
+      ),
     ];
+    return curves.map((c) => {
+      const geo = new THREE.BufferGeometry().setFromPoints(c.getPoints(24));
+      const mat = new THREE.LineBasicMaterial({
+        color: '#00B4D8',
+        transparent: true,
+        opacity: 0.55,
+      });
+      return new THREE.Line(geo, mat);
+    });
   }, []);
 
   useFrame(({ clock }) => {
@@ -86,15 +114,9 @@ function DataArcs() {
 
   return (
     <group ref={ref}>
-      {curves.map((c, i) => {
-        const points = c.getPoints(24);
-        const geo = new THREE.BufferGeometry().setFromPoints(points);
-        return (
-          <line key={i} geometry={geo}>
-            <lineBasicMaterial color="#00B4D8" transparent opacity={0.55} />
-          </line>
-        );
-      })}
+      {lines.map((line, i) => (
+        <primitive key={i} object={line} />
+      ))}
     </group>
   );
 }

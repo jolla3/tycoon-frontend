@@ -62,7 +62,11 @@ export const housesApi = {
   create: (input: CreateHouseInput) => apiClient.post<House>('/houses', input),
   update: (
     id: string,
-    updates: Partial<CreateHouseInput> & { status?: string; isActive?: boolean; houseTypeId?: string | null }
+    updates: Omit<Partial<CreateHouseInput>, 'houseTypeId'> & {
+      status?: string;
+      isActive?: boolean;
+      houseTypeId?: string | null;
+    }
   ) => apiClient.patch<House>(`/houses/${id}`, updates),
   listBillingConfig: (houseId: string) =>
     apiClient.get<HouseBillingConfig[]>(`/houses/${houseId}/billing-config`),

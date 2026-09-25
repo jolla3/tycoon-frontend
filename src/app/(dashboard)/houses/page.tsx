@@ -264,8 +264,7 @@ function EditHouseDialog({ open, onClose, house, onSaved }: { open: boolean; onC
         monthlyRent: Number(monthlyRent),
         dueDay: dueDay ? Number(dueDay) : undefined,
         status,
-        houseTypeId: houseTypeId || null,
-      }),
+houseTypeId: houseTypeId ? houseTypeId : undefined,      }),
     onSuccess: (updated) => {
       setSaved(true);
       onSaved(updated);

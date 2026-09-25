@@ -46,8 +46,8 @@ export interface PortfolioDashboard extends DashboardSummary {
     houseTypeCount: number;
     unclassifiedHouses: number;
   };
-  rent?: DashboardSummary['rent'] & { collectionRatePercent?: number | null };
-  bank?: DashboardSummary['bank'] & { matched?: number; unmatchedAllTime?: number };
+  rent: DashboardSummary['rent'] & { collectionRatePercent?: number | null };
+  bank: DashboardSummary['bank'] & { matched?: number; unmatchedAllTime?: number };
   byEstate?: PortfolioSlice[];
   byHouseType?: PortfolioSlice[];
   alerts?: DashboardAlert[];
