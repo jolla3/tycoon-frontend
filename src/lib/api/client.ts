@@ -97,11 +97,16 @@ type RequestOptions = {
 };
 
 export function getApiHealthUrl(): string {
-  const base = getApiBaseUrl();
-  // /health is mounted at the Express app root (see app.js), not under
-  // /api/v1 — strip that suffix if present, otherwise fall back to origin.
-  const withoutApiPrefix = base.replace(/\/api\/v\d+\/?$/, '');
-  return `${withoutApiPrefix || new URL(base).origin}/health`;
+  const base = getApiBaseUrl().replace(/\/+$/, '');
+  // Prefer /api/v1/health (same path family as other API calls). Root /health
+  // remains available for load balancers; SPA should not use a probe that
+  // triggers third-party Set-Cookie noise.
+  if (/\/api\/v\d+$/i.test(base)) return `${base}/health`;
+  try {
+    return `${new URL(base).origin}/api/v1/health`;
+  } catch {
+    return `${base}/api/v1/health`;
+  }
 }
 
 function buildUrl(path: string, query?: RequestOptions['query']): string {
