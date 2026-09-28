@@ -70,7 +70,20 @@ function classify(status: number): ApiErrorKind {
 function readCookie(name: string): string | null {
   if (typeof document === 'undefined') return null; // Server Component context — no cookie header needed for CSRF on GET
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1] ?? '') : null;
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/** Cross-origin SPAs cannot read the API-domain csrf-token cookie via document.cookie.
+ *  The API exposes X-CSRF-Token on responses; we keep the latest value in memory. */
+let csrfTokenMemory: string | null = null;
+
+function rememberCsrfFromResponse(response: Response) {
+  const header = response.headers.get('X-CSRF-Token');
+  if (header) csrfTokenMemory = header;
+}
+
+function getCsrfToken(): string | null {
+  return csrfTokenMemory || readCookie('csrf-token');
 }
 
 export type QueryValue = string | number | boolean | undefined | null;
@@ -116,7 +129,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   const isMutation = method !== 'GET';
   if (isMutation) {
-    const csrfToken = readCookie('csrf-token');
+    const csrfToken = getCsrfToken();
     if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
   }
 
@@ -139,6 +152,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal,
     });
+    rememberCsrfFromResponse(response);
   } catch {
     throw new ApiError('Unable to connect to the server.', 'NETWORK_ERROR', 0);
   }

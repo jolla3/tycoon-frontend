@@ -16,18 +16,26 @@ import { pendingCount, permanentlyFailedCount, processQueue, retryAllFailed } fr
 
 export type ConnectivityState = 'online' | 'offline' | 'degraded' | 'syncing' | 'sync-error';
 
+const HEALTH_TIMEOUT_MS = 8_000;
 const HEALTH_CHECK_INTERVAL_MS = 30_000;
-const HEALTH_CHECK_TIMEOUT_MS = 4_000;
 
 async function pingHealth(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
-    const res = await fetch(getApiHealthUrl(), { signal: controller.signal, cache: 'no-store' });
-    clearTimeout(timeout);
+    const res = await fetch(getApiHealthUrl(), {
+      method: 'GET',
+      signal: controller.signal,
+      cache: 'no-store',
+      // Health is public; omit cookies so a CSRF/session issue cannot mark the API "down".
+      credentials: 'omit',
+      mode: 'cors',
+    });
     return res.ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
