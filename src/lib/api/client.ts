@@ -70,7 +70,8 @@ function classify(status: number): ApiErrorKind {
 function readCookie(name: string): string | null {
   if (typeof document === 'undefined') return null; // Server Component context — no cookie header needed for CSRF on GET
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
+  const value = match?.[1];
+  return value ? decodeURIComponent(value) : null;
 }
 
 /** Cross-origin SPAs cannot read the API-domain csrf-token cookie via document.cookie.
