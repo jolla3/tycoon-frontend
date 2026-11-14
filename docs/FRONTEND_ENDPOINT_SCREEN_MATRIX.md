@@ -64,7 +64,7 @@ Signup is not mounted as an ordinary public route in the audited backend. Client
 | `GET /estates/:id/workspace` | Estate operational summary | `estatesApi.workspace` | `/estates/workspace` | Client session | Wired |
 | `POST /estates` | Create estate | `estatesApi.create` | `/estates` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `PATCH /estates/:id` | Update estate | `estatesApi.update` | `/estates` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
-| `GET /houses` | Paginated house list | `housesApi.list` | `/houses` and tenant/transaction helpers | Client session | Partial: estate filtering is also done client-side |
+| `GET /houses` | Paginated house list | `housesApi.list` | `/houses` and tenant/transaction helpers | Client session | Wired: selected `estateId` is sent to the backend; extra page filtering is redundant |
 | `GET /houses/:id` | House detail | `housesApi.get` | House workspace | Client session | Wired |
 | `POST /houses` | Create house | `housesApi.create` | `/houses` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `PATCH /houses/:id` | Update house | `housesApi.update` | `/houses` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
@@ -77,7 +77,7 @@ Signup is not mounted as an ordinary public route in the audited backend. Client
 | `POST /house-types` | Create house type | `houseTypesApi.create` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `PATCH /house-types/:id` | Update house type | `houseTypesApi.update` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `POST /house-types/:id/deactivate` | Deactivate house type | `houseTypesApi.deactivate` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
-| `GET /tenants` | List tenants | `tenantsApi.list` | `/tenants` | Client session | Partial: list filtering is client-side |
+| `GET /tenants` | List tenants | `tenantsApi.list` | `/tenants` | Client session | Partial: wrapper omits selected `estateId`; UI filters the returned array locally. Restricted STAFF is still scoped by backend middleware |
 | `GET /tenants/:id` | Tenant detail/workspace DTO | `tenantsApi.get` | Tenant workspace | Client session | Wired |
 | `POST /tenants` | Create tenant | `tenantsApi.create` | `/tenants` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `PATCH /tenants/:id` | Update tenant | `tenantsApi.update` | `/tenants` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
@@ -253,13 +253,14 @@ Do not infer a route name or response shape for any of the above. Get the backen
 - Backend route: `POST /houses/:houseId/billing-config/:configId/deactivate`.
 - Required fix: method parameter must be `configId`; URL must use the configuration record ID. The existing page may not currently call this wrapper, but the API contract is still wrong.
 
-### 12.3 Estate filtering must not pretend to be server-side
+### 12.3 Estate filtering: verified backend behavior and frontend gaps
 
-- Houses page passes an `estateId` to the wrapper but comments that its displayed estate filter is applied locally; verify backend support before assuming that query parameter narrows server results.
-- Tenants page obtains the tenant list and filters it locally.
-- Transactions page requests paginated transactions without an estateId filter and then filters only the returned page locally.
-- Unmatched-transaction assignment loads a set of houses and narrows that set to the transaction estate locally.
-- These filters improve usability only. They must not be described as security. Ensure pagination does not silently hide matching rows, and confirm the exact backend filter contract before moving filtering to server-side queries.
+- Backend `clientContext` reads `estateId` from the route/query, rejects a requested estate outside the authenticated user’s allowed estate IDs, and derives `req.estateFilter`. When a restricted STAFF user omits `estateId`, the middleware uses that user’s assigned `estateIds`; this is the actual security boundary.
+- Houses page passes the selected `estateId` through `housesApi.list`, and `houseService.list` applies the derived estate filter. The page also narrows the returned items locally, which is redundant; the source comment claiming `estateId` is deliberately not sent is stale.
+- Tenants page calls `tenantsApi.list()` without passing its selected estate. The tenant list is currently returned as an array rather than a paginated page, and the UI filters that array locally. Add optional `estateId` to the wrapper and pass the current selection so the backend performs the requested narrowing too. Restricted STAFF remains scoped by middleware even before that change.
+- Transactions page requests paginated transactions without `estateId`, then filters only the current page locally. Add `estateId` to `TransactionListQuery` and pass the selected estate so matching rows are selected before pagination. Restricted STAFF remains scoped by middleware even when the UI omits it.
+- Unmatched-transaction assignment loads houses without a selected `estateId` and narrows the returned set to the transaction estate locally. `housesApi.list` already supports `estateId`; pass the transaction’s estate to the backend query rather than relying on a potentially incomplete loaded page.
+- Keep client-side filtering as presentation only. It is never the authorization boundary; backend `clientContext` and service-level `estateFilterClause` enforce the permitted scope.
 
 ### 12.4 API wrapper barrel is incomplete
 
@@ -279,7 +280,7 @@ This audit reviewed repository source and package configuration. It did not run 
 |---|---|---|---|
 | P0 | Fix bank connection lifecycle in Banking | Existing account-create path does not follow backend contract | Confirm provider credential schema and connection DTO |
 | P0 | Fix billing-config deactivation identifier | Direct URL/parameter mismatch | Use config `_id` in the UI |
-| P0 | Audit estate filter and pagination behavior | Prevent misleading/incomplete records in operational screens | Confirm supported backend query filters |
+| P1 | Complete estateId query plumbing in Tenants and Transactions; pass transaction estate to unmatched-assignment house lookup | Prevent incomplete filtered results and avoid filtering only after pagination | Backend `clientContext` already supports and validates `estateId`; add it to frontend wrapper types/calls |
 | P1 | Add M-PESA tenant link API module and tenant workspace controls | Backend routes already exist | Confirm token-once response and exact response DTO |
 | P1 | Add public `/pay` page and submission client | Backend public endpoint already exists | Match exact `{ token, text }` and response codes |
 | P1 | Add M-PESA submission review queue | Backend list/resolve endpoints exist | Confirm filter/pagination response schema and reason-code enum |

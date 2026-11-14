@@ -149,7 +149,7 @@ The UI must preserve these domain distinctions:
 
 ## 8. Non-functional requirements
 
-- **Tenant isolation:** never rely on frontend filtering as an authorization control. Server-derived client/estate scope is mandatory.
+- **Tenant isolation and estate filtering:** never rely on frontend filtering as an authorization control. At the audited backend baseline, `clientContext` derives `req.estateFilter` from a requested `estateId` after checking that the user may access it; for restricted STAFF users with no requested estate, it falls back to their assigned `estateIds`. Houses currently sends the selected `estateId`; Tenants and Transactions do not. The Transactions page filters only the fetched page, so its selected-estate result can be incomplete. Pass supported estate filters to the backend and keep local filtering presentation-only.
 - **Financial integrity:** use integer cents for amounts. Display formatting must not change stored values or allocation logic.
 - **Authentication security:** HttpOnly session cookie, `credentials: include`, CSRF handling for mutating authenticated requests, and exact-origin credentialed CORS.
 - **Public-link security:** do not place the one-time token in analytics events, application logs, local storage, error reports, or query-cache persistence. Read it only in the client page from the URL fragment and clear the fragment after the page has safely captured it, without breaking the submission.

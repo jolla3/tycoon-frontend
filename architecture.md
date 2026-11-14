@@ -18,7 +18,7 @@
 - **Server state:** TanStack Query. **Offline read cache:** IndexedDB, identity-scoped and visibly stale. **Offline writes:** only explicitly whitelisted safe operations (currently profile update). Financial writes stay online-only.
 - **Financial distinctions:** `Payment` (posted ledger payment), `BankTransaction` (bank record), `MpesaSubmission` (SMS evidence), and `MpesaTransaction` (canonical provider receipt) are different models.
 - **Never invent an endpoint:** missing M-PESA receipt listing, merchant-profile management, manual Pull query, password reset, notifications, or generic settings must remain explicit backend dependencies.
-- **Current hard defects:** Banking skips the bank-connection lifecycle; house billing-config deactivation uses the wrong URL identifier; several estate filters are applied only to fetched data pages.
+- **Current hard defects:** Banking skips the bank-connection lifecycle; house billing-config deactivation uses the wrong URL identifier; Tenants and Transactions omit the selected `estateId` from their list requests. Transactions then filters only the current paginated page. Houses already sends `estateId` to the backend, although its page comment incorrectly claims otherwise and its extra local filter is redundant. Backend middleware still enforces restricted STAFF estate scope when no explicit `estateId` is sent.
 - **Planning rule:** keep `PRD.md`, this outline, and the endpoint/screen matrix synchronized before implementation.
 
 ## 1. Runtime and stack
@@ -92,7 +92,7 @@ There is no M-PESA collection wrapper yet. Bank-connection routes are also not r
 - Platform routes use the platform guard and require `SUPER_ADMIN`.
 - The sidebar and `permissions` helper hide or disable actions for usability only.
 - Backend `authorize()` middleware is the actual action-level security boundary.
-- Backend client/estate scoping must remain server-derived. Never infer that a client-side estate dropdown provides security.
+- Backend client/estate scoping is server-derived by `clientContext`: a requested `estateId` is validated against the authenticated user’s allowed estates and becomes `req.estateFilter`; restricted STAFF without a requested estate receives their assigned `estateIds` as the filter. Never infer that a client-side estate dropdown provides security. Houses sends the selected estate; Tenants and Transactions currently omit it in their list wrappers. Transactions therefore narrows only the current fetched page in the browser.
 - The public `/pay` page is intentionally outside the authenticated dashboard shell. Its public submission endpoint uses a separate backend guard.
 - Credentialed cross-origin requests require exact-origin CORS with credentials enabled by the backend.
 
@@ -172,7 +172,7 @@ The detailed endpoint map, frontend wrapper, current screen, role notes, and gap
 
 1. **Banking create flow:** current form calls `POST /bank/accounts` without first creating/selecting a bank connection and without the required `connectionId`. Add connection list/create/detail/reauthorize/disconnect wrappers and UI before account registration.
 2. **Billing-config deactivation:** `housesApi.deactivateBillingConfig(houseId, chargeType)` builds a URL using the charge type. Backend route expects `:configId`. Change the input and URL to use the configuration ID.
-3. **Estate filtering:** house and tenant screens currently narrow fetched data locally; transaction screen filters the currently fetched transaction page. These filters are not server authorization. Implement pagination/filtering only against parameters the backend actually accepts.
+3. **Estate filtering:** `clientContext` at the audited backend baseline validates a requested `estateId` and derives `req.estateFilter`; restricted STAFF users are automatically scoped to their assigned `estateIds` when no estate is requested. The Houses page already passes `estateId` through `housesApi.list` (its nearby source comment is stale and its extra local narrowing is redundant). The Tenants page calls `tenantsApi.list()` without the selected estate, then filters the returned array locally. The Transactions page omits `estateId` from `transactionsApi.list` and filters only the current paginated page. Add `estateId` to the Tenants and Transactions request types/calls, remove stale comments, and do not treat local filtering as authorization.
 4. **API export surface:** `src/lib/api/index.ts` omits existing house-type, billing, deposit, and subscription modules. Normalize imports/exports when touching the API layer.
 
 ### Backend routes exist but frontend is missing
