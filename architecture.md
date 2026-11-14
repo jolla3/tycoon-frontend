@@ -4,7 +4,7 @@
 > Audited: 2026-11-15  
 > Frontend baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
 > Backend contract baseline: `jolla3/tycoon-estates-backend` `main` @ `5aa05a2e81cb1ddc97f5507341a54a6b4a47ecb4`  
-> Detailed product requirements: [`../PRD.md`](../PRD.md)  
+> Detailed product requirements: [`PRD.md`](PRD.md)  
 > Endpoint-to-screen map: [`FRONTEND_ENDPOINT_SCREEN_MATRIX.md`](docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md)
 
 ## Agent context — compact outline
