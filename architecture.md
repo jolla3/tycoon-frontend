@@ -16,9 +16,9 @@
 - **HTTP boundary:** all authenticated feature requests go through `src/lib/api/client.ts`; feature modules live in `src/lib/api/*.ts`. Pages must not call `fetch` directly.
 - **Session:** HttpOnly cookie session, `credentials: 'include'`, and centralized CSRF handling for mutations. Do not put session credentials in browser storage.
 - **Server state:** TanStack Query. **Offline read cache:** IndexedDB, identity-scoped and visibly stale. **Offline writes:** only explicitly whitelisted safe operations (currently profile update). Financial writes stay online-only.
-- **Financial distinctions:** `Payment` (posted ledger payment), `BankTransaction` (bank record), `MpesaSubmission` (SMS evidence), and `MpesaTransaction` (canonical provider receipt) are different models.
+- **Financial distinctions:** Payment (posted ledger payment with origin/status/tenancy), BankTransaction (bank record), MpesaSmsSubmission (tenant-pasted SMS evidence), and MpesaTransaction (canonical provider receipt) are different records. Unknown ledger balance is null, not zero; house-wide history is not the active tenant liability.
 - **Never invent an endpoint:** missing M-PESA receipt listing, merchant-profile management, manual Pull query, password reset, notifications, or generic settings must remain explicit backend dependencies.
-- **Current hard defects:** Banking skips the bank-connection lifecycle; house billing-config deactivation uses the wrong URL identifier; Tenants and Transactions omit the selected `estateId` from their list requests. Transactions then filters only the current paginated page. Houses already sends `estateId` to the backend, although its page comment incorrectly claims otherwise and its extra local filter is redundant. Backend middleware still enforces restricted STAFF estate scope when no explicit `estateId` is sent.
+- **Current hard defects:** Banking skips BankConnection creation and omits required connectionId; HouseType creation omits estateId and backend validation strips it; HouseType workspace expects obsolete fields; deposit pay/deduct omit mandatory Idempotency-Key headers; tenant/house financial views can convert unknown balances to zero or mix active and historical balances; Payment and BankAccount DTOs omit backend fields; BankTransaction endpoints return raw internal fields; billing-config deactivation uses chargeType instead of configId; Tenants and Transactions omit selected estateId and Transactions filters after pagination. Billing generation is already present in the Estate Workspace Billing tab. Houses already sends estateId; its stale comment/local filter are redundant. Backend middleware remains the security boundary.
 - **Planning rule:** keep `PRD.md`, this outline, and the endpoint/screen matrix synchronized before implementation.
 
 ## 1. Runtime and stack
@@ -152,12 +152,12 @@ Money is transported as integer cents. Date/time values must follow the backend'
 | Profile | `/profile` | `/profile/*` |
 | Portfolio | `/estates`, `/houses`, `/house-types` | `/estates/*`, `/houses/*`, `/house-types/*` |
 | Tenants | `/tenants` and tenant workspace | `/tenants/*`, `/deposits/*`, future `/mpesa-collection/*` |
-| Billing | House workspace and future billing action | `/billing/*`, house billing-config routes |
+| Billing | Estate Workspace Billing tab generates charges; House Workspace displays account | `/billing/*`, house billing-config routes |
 | Payments | `/payments` | `/payments/*` |
 | Bank integration | `/banking` | `/bank/connections/*`, `/bank/accounts/*` |
 | Bank reconciliation | `/transactions`, `/transactions/unmatched` | `/transactions/*` |
-| M-PESA submission | Future public `/pay` | `/public/mpesa/submissions` |
-| M-PESA operator review | Tenant workspace + collections review queue | `/mpesa-collection/*` |
+| M-PESA public submission | New single-purpose public `/pay` page for pasted SMS evidence | `/public/mpesa/submissions` |
+| M-PESA operator controls/review | New link panel in tenant workspace + submission queue under Payments/Collections | `/mpesa-collection/*` |
 | Reporting | `/reports`, dashboard | `/reports/*` |
 | Communications | `/sms` | `/sms/*` |
 | Staff | `/staff` | `/users/*` |
@@ -172,8 +172,13 @@ The detailed endpoint map, frontend wrapper, current screen, role notes, and gap
 
 1. **Banking create flow:** current form calls `POST /bank/accounts` without first creating/selecting a bank connection and without the required `connectionId`. Add connection list/create/detail/reauthorize/disconnect wrappers and UI before account registration.
 2. **Billing-config deactivation:** `housesApi.deactivateBillingConfig(houseId, chargeType)` builds a URL using the charge type. Backend route expects `:configId`. Change the input and URL to use the configuration ID.
-3. **Estate filtering:** `clientContext` at the audited backend baseline validates a requested `estateId` and derives `req.estateFilter`; restricted STAFF users are automatically scoped to their assigned `estateIds` when no estate is requested. The Houses page already passes `estateId` through `housesApi.list` (its nearby source comment is stale and its extra local narrowing is redundant). The Tenants page calls `tenantsApi.list()` without the selected estate, then filters the returned array locally. The Transactions page omits `estateId` from `transactionsApi.list` and filters only the current paginated page. Add `estateId` to the Tenants and Transactions request types/calls, remove stale comments, and do not treat local filtering as authorization.
-4. **API export surface:** `src/lib/api/index.ts` omits existing house-type, billing, deposit, and subscription modules. Normalize imports/exports when touching the API layer.
+3. **Estate filtering and cache keys:** backend clientContext validates estateId and enforces assigned estateIds for restricted STAFF. Houses already sends estateId; remove stale comment. Tenants, Transactions and HouseType list omit selected estate. Transactions filters after pagination. Unmatched assignment fetches 200 houses across scope and filters locally. Add server-side estateId query support and include every filter in query/cache keys.
+4. **HouseType creation/workspace:** service requires estateId but create schema omits it and strips the request; frontend form/type also omit it. Workspace DTO separates current tenancy, historical, unattributed and orphaned financials while page expects obsolete flat fields. Fix backend validation and redesign to actual DTO.
+5. **Deposit idempotency:** backend deposit pay/deduct require Idempotency-Key. Wrappers send none and apiClient has no typed header support; these actions currently fail validation. Add stable per-intent key support and reuse on retry.
+6. **Financial DTOs:** tenant outstanding can be null and house account distinguishes current-tenancy from house-wide history. Current pages display null as zero or flatten balances. Payment origin/status and BankAccount validation/entitlements are omitted.
+7. **Bank transaction response safety:** list/unmatched return raw docs containing processingClaimToken and rawPayload. Backend needs a safe DTO before browser use.
+8. **Billing-config deactivation:** wrapper supplies chargeType; route requires configId.
+9. **API export surface:** src/lib/api/index.ts omits existing house-type, billing, deposit and subscription modules.
 
 ### Backend routes exist but frontend is missing
 
@@ -217,3 +222,69 @@ Before feature work:
 For each feature, test: API client contract, response DTO parsing, pending/error/success UI, authorization boundaries, stale/offline behavior, keyboard use, responsive layout, and backend integration.
 
 Do not claim tests passed unless the commands were executed against the current checked-out branch. Do not generate test-result files or persistent logs unless requested.
+
+## 11. Field-level contract corrections
+
+### Request schemas
+| Domain | Backend contract | Frontend correction |
+|---|---|---|
+| BankConnection create | provider, optional displayName, credentialMaterial object | Add separate connection API/form; never persist credentials |
+| BankAccount create | estateId, connectionId, provider, accountNumber, accountName, optional currency/allowEstateReassignment | Register account only after usable connection exists |
+| HouseType create | Service requires estateId, route create validation currently omits it | Fix backend schema and frontend estate selection/payload |
+| HouseType plan update | Service supports effectiveFromPeriod/changeReason; update schema currently strips them | Align validator and versioned-plan editor |
+| Tenant PATCH | name/phone/status/moveOutDate only | Remove houseId from update type; use dedicated move |
+| House PATCH | estateId is not accepted | Remove estateId from update type |
+| Deposit pay/deduct | Mandatory Idempotency-Key header | Add typed header support; stable key per intent and across retries |
+
+### Response models
+- Tenant detail: outstandingCents is nullable and includes knownArrearsCents, historicalCoverage, verifiedFullObligation, balanceSource, overdueCents and oldestUnpaidPeriod. Never render null as zero.
+- House account: preserve ledger, currentTenancyId, verification metadata, currentTenancyBalanceCents, currentTenancyBalanceVerified, historicalUnattributedCents and balanceSource. Label active-tenancy vs house-wide historical amounts separately.
+- HouseType workspace: rebuild around currentTenancy, historicalTenancyFinancials, unattributedLegacyFinancials, orphanedTenancyFinancials and currentOccupancyConflict. Do not read obsolete flat fields.
+- BankAccount: include connectionId, validationStatus, lastValidatedAt and entitlements. Connection status and account validation status are distinct.
+- BankTransaction: model all backend matchStatus/processingState values, but require safe backend DTO excluding processingClaimToken/rawPayload.
+- Payment: include origin, status and tenancyId. Backend list can include REVERSED.
+- HouseBillingConfig: include effectiveTo/frequency and deactivate by config _id.
+- Deposit GET returns tenant, deposit, activeTenancyId and balance; pay/deduct require Idempotency-Key.
+- Billing generation is already in Estate Workspace Billing tab; each estate result also includes eligibleTenancies/partialPeriodExcluded.
+
+## 12. M-PESA frontend architecture (new feature)
+
+M-PESA is not connected in the current frontend. Build a focused vertical slice with one public tenant page and authenticated operator controls. Do not create a tenant portal.
+
+### Route and module boundaries
+- Public page: src/app/(public)/pay/page.tsx → /pay. No session guard and no dashboard shell.
+- Operator link panel: feature component inside existing tenant workspace.
+- Operator evidence queue: new authenticated route under Payments/Collections, for example /payments/mpesa-submissions.
+- API modules: src/lib/api/mpesa-collection.ts for authenticated routes and src/lib/api/mpesa-public.ts for public submission.
+- Feature components: src/features/mpesa/public-submission, tenant-link and submissions.
+
+### Public page behavior
+1. Read token only from URL fragment #t= after client hydration.
+2. Keep token in in-memory component state only. Never put it in query cache, IndexedDB, localStorage, telemetry, logs, query parameters or error details.
+3. Display one SMS text area and one submit action. No login, balance, checkout, receipt history or account screens.
+4. Submit exact body { token, text }; backend owns the public guard and 4 KB body limit.
+5. 202 means evidence received for processing only. Use neutral invalid-link/unavailable states; never claim payment posted.
+6. Clear sensitive text after accepted submission; never persist it.
+
+### Authenticated link lifecycle
+- Inspect returns safe link metadata only; token is never returned.
+- Issue/rotate returns { link, token }; token is available once. Build /pay#t=... with configured public app origin matching backend FRONTEND_URL. Keep raw token transient and provide copy/share.
+- Revoke invalidates active link and clears local token/display state.
+- operational=false means merchant/Till prerequisites are not ready.
+- Backend may queue protected onboarding SMS when tenant phone, active merchant profile and FRONTEND_URL exist. Issue response has no delivery result: never say SMS sent/delivered and do not build a duplicate sender.
+
+### Evidence review
+- GET submissions defaults to reviewable states and supports state/limit filtering.
+- Resolve only supports REJECT and RETRY_MATCH with reason codes DUPLICATE, WRONG_TENANT, NOT_A_RENT_PAYMENT, UNREADABLE, OTHER_DOCUMENTED.
+- No approve/force-match. Submission evidence is not a Payment.
+- SUPER_ADMIN requests need explicit clientId; regular client operators inherit session scope.
+
+### Missing backend APIs
+No canonical MpesaTransaction list/detail, merchant profile CRUD or manual Daraja Pull HTTP endpoint exists. Do not create frontend controls for them. Daraja callbacks and scheduled Pull remain backend-only.
+
+## 13. Financial presentation invariants
+- Unknown or unverified is never rendered as KSh 0.
+- House-wide historical outstanding is not automatically the current tenant liability.
+- Current account, closed-tenancy arrears, tenant credit and pending M-PESA evidence remain distinct.
+- BankTransaction, MpesaSmsSubmission, MpesaTransaction and Payment are not interchangeable.
+- Money remains integer cents through the API layer; KES formatting is presentation-only.

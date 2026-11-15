@@ -73,8 +73,8 @@ Signup is not mounted as an ordinary public route in the audited backend. Client
 | `POST /houses/:id/billing-config/:configId/deactivate` | Deactivate a billing line | `housesApi.deactivateBillingConfig` currently supplies `chargeType` | No confirmed active call site found | CLIENT_OWNER / CLIENT_ADMIN | **Contract mismatch** |
 | `GET /house-types` | List house types | `houseTypesApi.list` | `/house-types` | Client session | Wired |
 | `GET /house-types/:id` | Read house type | `houseTypesApi.get` | House-type workspace | Client session | Wired |
-| `GET /house-types/:id/workspace` | House-type portfolio summary | `houseTypesApi.workspace` | `/house-types/workspace` | Client session | Wired |
-| `POST /house-types` | Create house type | `houseTypesApi.create` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
+| `GET /house-types/:id/workspace` | Tenancy-aware house-type portfolio summary | `houseTypesApi.workspace` | `/house-types/workspace` | Client session | Response DTO mismatch: page expects obsolete flat fields; backend returns current/historical/unattributed/orphaned tenancy groupings |
+| `POST /house-types` | Create estate-owned house type | `houseTypesApi.create` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Contract mismatch + backend schema defect: service requires estateId; route validation strips it and frontend does not send it |
 | `PATCH /house-types/:id` | Update house type | `houseTypesApi.update` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `POST /house-types/:id/deactivate` | Deactivate house type | `houseTypesApi.deactivate` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `GET /tenants` | List tenants | `tenantsApi.list` | `/tenants` | Client session | Partial: wrapper omits selected `estateId`; UI filters the returned array locally. Restricted STAFF is still scoped by backend middleware |
@@ -91,17 +91,17 @@ Backend deactivation is keyed by a configuration ID: `/houses/:houseId/billing-c
 
 | Backend endpoint | Purpose | Frontend wrapper | Screen / use site | Role / access | Status |
 |---|---|---|---|---|---|
-| `POST /billing/generate` | Generate period RentCharges | `billingApi.generate` | No dedicated generation surface found in checked route tree | CLIENT_OWNER / CLIENT_ADMIN | **Partial: wrapper without clear UI action** |
+| `POST /billing/generate` | Generate period RentCharges | `billingApi.generate` | Estate Workspace → Billing tab (EstateBillingGenerate) | CLIENT_OWNER / CLIENT_ADMIN | Wired; result type omits per-estate eligibleTenancies and partialPeriodExcluded |
 | `GET /billing/houses/:houseId/account` | House account, charges, payments, totals | `billingApi.houseAccount` | House workspace | Client session | Wired |
 | `GET /payments` | List posted Payment records | `paymentsApi.list` | `/payments`, tenant/house views | Client session | Wired |
 | `POST /payments` | Record manual payment and allocation | `paymentsApi.create` | `/payments` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `GET /deposits/:tenantId` | Read deposit account | `depositsApi.get` | Tenant workspace / Deposit tab | Client session | Wired |
 | `POST /deposits/:tenantId/require` | Set deposit requirement | `depositsApi.require` | Tenant workspace / Deposit tab | CLIENT_OWNER / CLIENT_ADMIN | Wired |
-| `POST /deposits/:tenantId/pay` | Record deposit payment | `depositsApi.pay` | Tenant workspace / Deposit tab | CLIENT_OWNER / CLIENT_ADMIN | Wired |
-| `POST /deposits/:tenantId/deduct` | Record deposit deduction | `depositsApi.deduct` | Tenant workspace / Deposit tab | CLIENT_OWNER / CLIENT_ADMIN | Wired |
+| `POST /deposits/:tenantId/pay` | Record deposit payment | `depositsApi.pay` | Tenant workspace / Deposit tab | CLIENT_OWNER / CLIENT_ADMIN | Contract mismatch: backend requires Idempotency-Key; wrapper sends none |
+| `POST /deposits/:tenantId/deduct` | Record deposit deduction | `depositsApi.deduct` | Tenant workspace / Deposit tab | CLIENT_OWNER / CLIENT_ADMIN | Contract mismatch: backend requires Idempotency-Key; wrapper sends none |
 | `POST /deposits/:tenantId/settle` | Settle deposit | `depositsApi.settle` | Tenant workspace / Deposit tab | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 
-The current Billing API wrapper also includes charge generation, but no dedicated Billing route appears in the current App Router and no clear `billingApi.generate` call was found in the inspected dashboard/payment/house screens. A billing-generation control is a product requirement; add it to a deliberate operational surface with confirmation and permission checks.
+Correction: billing generation is already exposed in the Estate Workspace Billing tab. Keep that action, verify confirmation/permission behavior, and extend BillingGenerateResult to model eligibleTenancies and partialPeriodExcluded per estate. Do not build a duplicate generation surface.
 
 ## 6. Bank connections, accounts, and transactions
 
@@ -163,7 +163,7 @@ The user update endpoint does not edit roles. The frontend form must not imply t
 
 ## 8. M-PESA collection: existing backend contract, missing frontend
 
-The backend already has a tenant link/submission/review flow. The frontend has no `mpesa-collection` API module, no tenant `/pay` page, and no operator link/review surface in the checked source.
+The backend exposes link issuance and SMS-evidence processing routes, but M-PESA is not wired anywhere in the current frontend. Treat it as a new feature. Tenant-facing scope is exactly one public /pay page for pasting and submitting SMS text. Link management belongs in the authenticated tenant workspace; evidence review belongs under Payments/Collections. Do not create a tenant portal or multiple tenant-facing pages.
 
 | Backend endpoint | Purpose | Required frontend surface | Role / access | Status |
 |---|---|---|---|---|
@@ -198,7 +198,10 @@ The page must:
 
 ### Required operator flow
 
-- Put link inspect/issue/revoke on the tenant workspace; do not create a parallel tenant-management app.
+- Put link inspect/issue/rotate/revoke and copy/share on the tenant workspace; do not create a parallel tenant-management app.
+- Issue returns { link, token } once; inspect returns metadata only. Hold token in ephemeral UI state and never cache, persist, log or track it.
+- Backend may queue protected onboarding SMS when prerequisites exist, but response exposes no delivery result. Never claim SMS sent/delivered or duplicate backend SMS.
+- If link.operational is false, do not present it as ready for evidence submissions.
 - Put submission review into a collections/payment-operations area or a focused sub-route reached from that area.
 - Support only the backend's two resolution actions: `REJECT` and `RETRY_MATCH`, each with a required reason and audit trail.
 - Never create a “force approve” button; the backend does not expose that operation.
@@ -284,7 +287,7 @@ This audit reviewed repository source and package configuration. It did not run 
 | P1 | Add M-PESA tenant link API module and tenant workspace controls | Backend routes already exist | Confirm token-once response and exact response DTO |
 | P1 | Add public `/pay` page and submission client | Backend public endpoint already exists | Match exact `{ token, text }` and response codes |
 | P1 | Add M-PESA submission review queue | Backend list/resolve endpoints exist | Confirm filter/pagination response schema and reason-code enum |
-| P1 | Add billing generation action | Backend route and wrapper exist, but no UI action was identified | Confirm allowed period/estate validation and permission handling |
+| P1 | Complete billing generation response typing | Action already exists in Estate Workspace Billing tab | Model eligibleTenancies and partialPeriodExcluded returned per estate |
 | P2 | Add canonical M-PESA receipt inbox | Important, but blocked by a missing backend read API | Backend endpoint + DTO |
 | P2 | Add merchant-profile management and manual Pull controls | Blocked by missing backend HTTP endpoints | Backend API design and authorization |
 | P2 | Add frontend test harness and real browser acceptance suite | Current manifest has no test script | Test framework decision and CI integration |
@@ -313,3 +316,76 @@ Do not create one top-level page for every endpoint.
 - Have all three planning documents been updated to match the current backend commit?
 
 **Implementation gate:** no feature implementation should begin until these questions have evidence-backed answers for that feature.
+
+
+## 16. Field-level contract audit and redesign findings
+
+This section supersedes earlier matrix statements that conflict with it. Source baseline remains frontend main dc34279 and backend main 5aa05a2.
+
+### 16.1 Request and path mismatches
+
+| Area | Actual backend contract | Frontend gap | Required correction |
+|---|---|---|---|
+| Bank connection create | POST /bank/connections: provider, optional displayName, required credentialMaterial object | No wrapper or UI | Add separate BankConnection lifecycle |
+| Bank account create | POST /bank/accounts: estateId, connectionId, provider, accountNumber, accountName, optional currency/allowEstateReassignment | UI calls directly; input omits connectionId | Create/select active connection first |
+| HouseType create | Service requires estateId; createSchema omits it and validation strips it | Form/type omit estateId too | Fix backend validator and frontend estate selection/payload |
+| HouseType plan update | Service supports effectiveFromPeriod/changeReason; update schema omits both | No frontend field model | Align backend validator and versioned-plan editor |
+| Billing config deactivate | Path requires configId | Wrapper uses chargeType | Pass selected config _id |
+| Deposit pay/deduct | Mandatory Idempotency-Key header | Wrappers send no header; apiClient lacks typed header support | Add stable per-intent idempotency-key support |
+| Tenant PATCH | name/phone/status/moveOutDate only; move uses dedicated route | Update type permits houseId | Remove houseId from PATCH |
+| House PATCH | estateId cannot be changed | Update type permits estateId | Remove estateId from update type |
+
+### 16.2 Response DTO drift
+
+| Area | Backend DTO/model | Frontend mismatch |
+|---|---|---|
+| BankConnection | Safe DTO: id/provider/displayName/status/credentialVersion/safe authMeta/timestamps; no credentials returned | Missing frontend DTO/module |
+| BankAccount | Includes connectionId, validationStatus, lastValidatedAt, entitlements | Interface omits fields |
+| BankTransaction | matchStatus supports MATCHED/UNMATCHED/PARTIAL/MANUAL_REVIEW; separate processingState supports RECEIVED/CLAIMED/POSTED/FAILED_RETRYABLE/FAILED_TERMINAL/MANUAL_REVIEW | Type only allows MATCHED/UNMATCHED |
+| BankTransaction response safety | list/unmatched return raw docs including processingClaimToken/rawPayload | Backend must project a safe DTO before browser use |
+| Tenant financials | outstandingCents can be null; knownArrearsCents, historicalCoverage, verifiedFullObligation, balanceSource, overdueCents, oldestUnpaidPeriod | Type says number; page renders null as zero |
+| House account | currentTenancyId, ledger, verification metadata, currentTenancyBalanceCents, currentTenancyBalanceVerified, historicalUnattributedCents, balanceSource | Type/page flatten house-wide historic balance as active occupant liability |
+| HouseType workspace | currentTenancy/currentOccupancyConflict/historicalTenancyFinancials/unattributedLegacyFinancials/orphanedTenancyFinancials | Page expects obsolete flat fields and non-existent occupancyRatePercent |
+| HouseBillingConfig | _id/effectiveFrom/effectiveTo/frequency | Type omits effectiveTo/frequency; deactivate by _id |
+| Payment | origin BANK/MANUAL/MPESA/CREDIT; status CONFIRMED/REVERSED; tenancyId | Type/table omit origin/status; list can contain reversed rows |
+| Deposit GET | { tenant, deposit, activeTenancyId, balance } | Frontend models only deposit |
+| Billing result | Per-estate eligibleTenancies/partialPeriodExcluded | Result type omits those fields |
+
+### 16.3 Filtering and cache defects
+
+- Transactions omits selected estateId then filters after pagination. Send estateId and include it in query/cache keys.
+- Unmatched assignment requests up to 200 houses and filters locally. Send transaction.estateId to housesApi.list and include it in the cache key.
+- Tenants omits estateId although clientContext supports it. Add optional estateId; backend list is unpaginated.
+- HouseType list supports estateId/includeInactive but wrapper exposes includeInactive only. Add estate query support.
+- Houses already sends estateId; remove stale comments, preserve backend filter.
+- Include every list filter (estate, match status, state, date range, pagination) in React Query and IndexedDB cache keys.
+
+### 16.4 Deposit mutation failure detail
+
+Deposit service requires Idempotency-Key for pay and deduct and throws validation error when it is missing. Route Zod schemas allow amountCents/reason/notes but strip an idempotencyKey body property. Current wrappers therefore fail until the shared API client can send the header. Generate one key per deliberate user action, keep it stable on retries, and generate a new key only for a new action.
+
+### 16.5 M-PESA new-feature architecture
+
+M-PESA is entirely absent from frontend source:
+- Exactly one public tenant page: /pay, no auth, one text area and one submit action.
+- Tenant link controls inside existing tenant workspace.
+- Evidence review queue under authenticated Payments/Collections, e.g. /payments/mpesa-submissions.
+- Separate authenticated mpesa-collection and public mpesa submission API modules.
+- Public request omits session cookies and CSRF; token comes from fragment #t= and is never persisted, logged, tracked or cached.
+- Issue returns link+token once. Inspect returns metadata only. Issue may rotate/invalidate prior token.
+- Backend may queue protected onboarding SMS, but response does not report delivery. Do not claim SMS sent.
+- Public POST accepts exactly { token, text }, body limit 4 KB. 202 means evidence received for processing, not payment posted.
+- Review supports only REJECT and RETRY_MATCH with required reason codes. No approve/force-match.
+- SMS evidence is not canonical MpesaTransaction and is not Payment.
+
+### 16.6 Backend capabilities unavailable to frontend
+
+No canonical MpesaTransaction read/list, merchant profile management or manual Pull query endpoint exists. Password reset, notifications and generic settings endpoints are absent. Provider webhooks and scheduled jobs remain backend-only.
+
+### 16.7 Redesign order
+
+P0: deposit Idempotency-Key; HouseType create schema + estate selection; BankConnection → BankAccount; safe BankTransaction DTO; unknown and tenancy-aware balance rendering.
+
+P1: HouseType workspace rebuild; Tenant/House/Payment/BankAccount DTO corrections; estate filter/cache-key plumbing; billing config ID/effective dates; new M-PESA public page + operator link controls + evidence review queue.
+
+P2: canonical receipt inbox, merchant management and manual Pull only after backend endpoints exist.

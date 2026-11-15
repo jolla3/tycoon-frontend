@@ -66,7 +66,7 @@ The current UI permission helper treats role-based checks as a usability layer. 
 4. A permitted operator may record a manual payment.
 5. The frontend displays the resulting payment and allocations only after the backend confirms the mutation.
 
-Billing generation is an operational action, not a local calculation. The current frontend has a `billingApi.generate` wrapper, but no clear dedicated billing-generation screen was found in the checked route tree. The action must be surfaced intentionally and permission-gated rather than hidden in an unrelated page.
+Billing generation is already wired in the current frontend: Estate Workspace → Billing tab calls billingApi.generate({ estateId }) and invalidates the estate workspace after success. Do not plan a duplicate generation page or describe the action as missing. The remaining gap is response typing: each estate result includes eligibleTenancies and partialPeriodExcluded, which the current BillingGenerateResult type omits. Generation is server-side, owner/admin-authorized, and online-only.
 
 ### 5.3 Bank connection and reconciliation
 
@@ -81,16 +81,17 @@ A connection and an account are separate backend resources. The current Banking 
 
 The current statement endpoint returns stored/reconciled counts, not a statement transaction list. The UI must label that response honestly and direct operators to the Transactions screen for imported records.
 
-### 5.4 Tenant M-PESA submission
+### 5.4 M-PESA SMS submission feature (new frontend feature)
 
-1. An authorized operator opens a tenant workspace and inspects or issues a submission link.
-2. The backend returns a one-time token and constructs a page URL of the form `{FRONTEND_URL}/pay#t={token}`.
-3. The tenant opens the public `/pay` page. The page reads the token from the URL fragment in the browser and asks the tenant to paste the relevant M-PESA confirmation SMS text.
-4. The page submits `{ token, text }` to `POST /api/v1/public/mpesa/submissions`.
-5. The UI reports that the evidence was received, not that rent was paid or the receipt was posted.
-6. An authorized operator reviews submissions using the authenticated collection endpoints and can take only the backend-supported actions: reject or retry matching, with the required reason code and audit trail.
+M-PESA is not wired into the current frontend. Treat this as a new feature with one narrow tenant-facing surface, not as a tenant portal.
 
-The token is returned once by the link-issue operation; the frontend must not expect to retrieve it again from a later inspection call. The page URL is a **frontend page URL**, not an API endpoint.
+**Tenant-facing experience: exactly one public page.** An authorized operator issues a tenant-specific submission link from the authenticated tenant workspace. The backend builds a page URL in the form FRONTEND_URL/pay#t=one-time-token. The tenant opens that single /pay page, pastes the M-PESA confirmation SMS text into one form, and submits it. The page has no tenant dashboard, tenant account, payment checkout, receipt history, rent balance, or general navigation.
+
+The public page submits the exact JSON body { token, text } to POST /api/v1/public/mpesa/submissions. A 202 response means evidence was received for processing only. It must never be presented as a completed payment, confirmed receipt, rent allocation, or ledger posting.
+
+**Authenticated operator experience:** inspect link state; issue or rotate; copy/share the one-time URL; or revoke. The issue response contains { link, token }; the raw token is returned once and cannot be recovered from inspection. Keep it only in transient component memory for copy/share. The backend may enqueue its protected onboarding SMS when prerequisites exist, but the issue response does not include a delivery result. Never claim SMS sent/delivered based only on link issuance. Operators review submissions in a focused collections queue and may only REJECT or RETRY_MATCH with a required reason code. No approve/force-match action exists.
+
+The public URL is a frontend page URL, not an API endpoint. The token is in the URL fragment, which is not sent to Next.js. Read it client-side, do not persist/log/track it, and clear it from the visible URL after safe capture where possible.
 
 ### 5.5 Financial record distinctions
 
@@ -112,15 +113,16 @@ The UI must preserve these domain distinctions:
 | Public landing and login | Product entry and cookie-session login | Present |
 | Dashboard | Portfolio and financial summary, current alerts and recent payments | Present |
 | Estates | List, create/update, workspace metrics | Present |
-| House types | List, create/update/deactivate, workspace | Present |
+| House types | Estate-owned list, create/update/deactivate, tenancy-aware workspace | Present but creation contract is broken: UI omits required estateId and backend create validation strips it; workspace DTO/UI are stale |
 | Houses | List, create/update, detail/workspace, billing configuration | Present; billing-config deactivate wrapper has a path mismatch |
 | Tenants | List, create/update/move, tenant workspace, deposits | Present; no M-PESA link controls |
-| Billing | Generate period charges and inspect house account | API wrapper exists; dedicated generation UI not identified |
+| Billing | Generate period charges and inspect house account | Generation is already wired from Estate Workspace → Billing tab; response type is incomplete and house-account rendering/types are stale |
 | Payments | List posted payments and record manual payments | Present |
 | Banking | Create/manage bank connections, register accounts, sync, inspect statement result | Partial; current connect form uses the wrong lifecycle |
 | Transactions | List bank transactions and review/assign unmatched records | Present; estate filtering can be limited to the currently fetched page |
-| M-PESA public page | Read token from fragment and submit SMS evidence | Missing |
-| M-PESA operator tools | Issue/revoke tenant links and review/resolve SMS submissions | Backend routes exist; frontend wrapper and screen are missing |
+| M-PESA public page | One public page for a tenant to paste and submit M-PESA SMS evidence using a one-time fragment token | New feature; no route, page, API wrapper, or form exists |
+| M-PESA operator controls | Inspect/issue/rotate/revoke a tenant link from the authenticated tenant workspace | New feature; backend routes exist, frontend is entirely missing |
+| M-PESA evidence review | Review SMS submissions and perform only supported reject/retry-match actions | New feature; backend routes exist, frontend is entirely missing |
 | M-PESA receipt inbox | Browse canonical provider receipts | Blocked: no canonical receipt-list endpoint is exposed |
 | SMS | Preview, send, broadcast, inspect history | Present |
 | Reports | Dashboard, monthly, arrears, payments, bank, SMS, billed-vs-paid, management | Present |
@@ -139,8 +141,9 @@ The UI must preserve these domain distinctions:
 - **FR-05 Payments:** display posted Payment records and show server-confirmed manual-payment allocations.
 - **FR-06 Bank connections:** implement the backend connection lifecycle before account registration. Never submit account creation without the required `connectionId`.
 - **FR-07 Bank reconciliation:** display BankTransaction records and submit assignment only when online and authorized.
-- **FR-08 Tenant M-PESA page:** implement the public `/pay` page, fragment-token handling, SMS-text submission, neutral invalid-link states, and duplicate/error feedback.
-- **FR-09 M-PESA operator flow:** add tenant link inspect/issue/revoke controls and a submission review queue using only the routes and resolution actions the backend supports.
+- **FR-08 Tenant M-PESA page:** build exactly one standalone public /pay page. It reads the one-time token from #t=, accepts pasted SMS text, and submits evidence only.
+- **FR-09 M-PESA operator flow:** add authenticated link inspect/issue/rotate/revoke controls to the existing tenant workspace and a focused submission-evidence review queue. Do not create a tenant portal or additional tenant-facing pages.
+- **FR-15 M-PESA delivery truthfulness:** never claim onboarding SMS delivery because link issuance exposes no delivery status; never claim an SMS submission is a posted payment.
 - **FR-10 Canonical M-PESA receipts:** do not build a receipt inbox until the backend exposes a paginated, client/estate-scoped canonical receipt read endpoint and a documented DTO.
 - **FR-11 Communications:** use the existing SMS preview/send/broadcast/history routes; respect each route's recipient and role rules.
 - **FR-12 Reporting:** use the reporting endpoints and their date/period contracts. Mark unavailable fields as unavailable rather than synthesizing them.
@@ -150,9 +153,10 @@ The UI must preserve these domain distinctions:
 ## 8. Non-functional requirements
 
 - **Tenant isolation and estate filtering:** never rely on frontend filtering as an authorization control. At the audited backend baseline, `clientContext` derives `req.estateFilter` from a requested `estateId` after checking that the user may access it; for restricted STAFF users with no requested estate, it falls back to their assigned `estateIds`. Houses currently sends the selected `estateId`; Tenants and Transactions do not. The Transactions page filters only the fetched page, so its selected-estate result can be incomplete. Pass supported estate filters to the backend and keep local filtering presentation-only.
-- **Financial integrity:** use integer cents for amounts. Display formatting must not change stored values or allocation logic.
+- **Financial integrity:** use integer cents for amounts. Display formatting must not change stored values or allocation logic. An unknown/unverified ledger balance is not zero: preserve null, historicalCoverage, verifiedFullObligation, and balanceSource; label it unavailable/unverified rather than displaying KSh 0.
+- **Tenancy-aware balances:** distinguish active-tenancy liability from house-wide historical exposure, unattributed legacy balances, and closed-tenancy arrears. Never assign historical house debt to the current tenant in the UI.
 - **Authentication security:** HttpOnly session cookie, `credentials: include`, CSRF handling for mutating authenticated requests, and exact-origin credentialed CORS.
-- **Public-link security:** do not place the one-time token in analytics events, application logs, local storage, error reports, or query-cache persistence. Read it only in the client page from the URL fragment and clear the fragment after the page has safely captured it, without breaking the submission.
+- **Public-link security:** do not place the one-time token or pasted SMS text in analytics events, application logs, local storage, IndexedDB, error reports, or query-cache persistence. Read the token from the URL fragment and hold it in memory. Clear it from the visible URL after safe capture where possible. Clear pasted text after accepted submission. Public submission does not depend on a logged-in session or CSRF token.
 - **Offline safety:** read-only cached data must be visibly stale. Only explicitly approved non-financial operations may enter the sync queue. Financial operations must require a live server response.
 - **Accessibility and responsive behavior:** keyboard-accessible controls, labels and error association, focus management for dialogs, reduced-motion support, and real viewport testing.
 - **Operational clarity:** distinguish provider configured, implemented, and live-verified states. A green UI status must not imply a live provider integration unless the backend reports that state.
@@ -237,3 +241,101 @@ The existing M-PESA link, public submission, submission review, Daraja callback,
 - A source-of-truth baseline and explicit acceptance criteria so future implementation agents do not use stale README claims.
 
 **Implementation rule:** update this PRD, `architecture.md`, and the endpoint/screen matrix together whenever a confirmed backend contract or product workflow changes. Do not start feature coding from an unreviewed chat summary.
+
+## 13. Detailed frontend/backend contract audit (2026-11-15)
+
+This section records field-level findings from the checked source revisions and supersedes any earlier conflicting statement.
+
+### 13.1 Request and workflow mismatches
+
+| Feature | Backend contract | Frontend gap and resolution |
+|---|---|---|
+| BankConnection create | POST /bank/connections requires provider and credentialMaterial object; displayName optional | No wrapper/UI. Add separate BankConnection API and lifecycle before account registration |
+| BankAccount create | POST /bank/accounts requires estateId, connectionId, provider, accountNumber, accountName; currency and allowEstateReassignment optional | Current input omits connectionId; select a valid active connection first |
+| HouseType create | Service requires estateId; route createSchema omits it and validation strips it | Add estateId to backend schema and require estate selection/context in frontend |
+| HouseType plan update | Service supports effectiveFromPeriod/changeReason; current update schema omits them | Align backend validation and frontend versioned-plan form |
+| Billing config deactivate | URL requires configId | Wrapper uses chargeType; pass selected config _id |
+| Deposit pay/deduct | Both require Idempotency-Key header; route validation strips body extras | Wrappers send no header and API client has no typed header option; add stable per-intent key support |
+| Tenant PATCH | name/phone/status/moveOutDate only; move uses dedicated route | Frontend update type permits houseId; remove from PATCH type |
+| House PATCH | estateId is excluded | Frontend update type permits estateId; remove from update type |
+
+### 13.2 Response and field drift
+
+| Feature | Backend truth | Frontend correction |
+|---|---|---|
+| BankConnection | Safe DTO: id/provider/displayName/status/credentialVersion/safe authMeta/timestamps; no credentials returned | Model safe fields only; never model secrets, tokens or credential material |
+| BankAccount | Includes connectionId, validationStatus, lastValidatedAt, entitlements poll/statement/balance/webhookIngest | Add fields; distinguish connection auth from account validation and gate actions by entitlements |
+| BankTransaction | matchStatus includes MATCHED/UNMATCHED/PARTIAL/MANUAL_REVIEW; processingState separately supports RECEIVED/CLAIMED/POSTED/FAILED_RETRYABLE/FAILED_TERMINAL/MANUAL_REVIEW | Frontend models only MATCHED/UNMATCHED. Backend list/unmatched return raw docs with processingClaimToken/rawPayload; backend must project a safe DTO |
+| Tenant financials | outstandingCents may be null; knownArrearsCents, historicalCoverage, verifiedFullObligation, balanceSource, overdueCents and oldestUnpaidPeriod are returned | Frontend treats it as number and renders outstandingCents ?? 0, converting unknown to KSh 0 |
+| House account | Includes currentTenancyId, ledger, verification metadata, currentTenancyBalanceCents, currentTenancyBalanceVerified, historicalUnattributedCents and balanceSource | Frontend omits them and flattens house-wide historic exposure into one current liability |
+| HouseType workspace | Separates currentTenancy, historicalTenancyFinancials, unattributedLegacyFinancials, orphanedTenancyFinancials and occupancy conflict | Frontend expects obsolete flat tenant/monthlyRent/period-charge fields and occupancyRatePercent |
+| HouseBillingConfig | Includes _id/effectiveFrom/effectiveTo/frequency | Frontend omits effectiveTo/frequency; deactivate by _id |
+| Payment | Includes origin BANK/MANUAL/MPESA/CREDIT, status CONFIRMED/REVERSED and tenancyId | Frontend omits origin/status; list may contain reversed rows |
+| Deposit GET | Returns tenant, deposit, activeTenancyId and balance | Frontend models only deposit |
+| Billing generation | Per-estate results include eligibleTenancies and partialPeriodExcluded | UI already exists; result type omits these fields |
+
+### 13.3 Filtering and cache defects
+
+- Transactions omits selected estateId and filters after pagination. Send estateId and include it in React Query and identity-scoped cache keys.
+- Unmatched assignment loads up to 200 houses and filters locally. Send transaction.estateId to housesApi.list and include it in the cache key.
+- Tenants list omits estateId although clientContext supports it. Add optional estateId; backend list is currently an unpaginated array.
+- HouseType list supports estateId/includeInactive but wrapper exposes includeInactive only. Add estate query support.
+- Houses already sends estateId; remove stale comments, preserve backend filtering.
+- Every list filter (estate, match status, submission state, date range, pagination) must be represented in query/cache keys.
+
+### 13.4 Contracts already aligned or present
+
+- Billing generation is wired from Estate Workspace → Billing tab; do not duplicate it.
+- Manual payment create body aligns: houseId, amountCents, optional paymentDate, paymentReference, period and tenantId. Response contains payment, allocations and reused.
+- SMS send, broadcast, preview and history broadly align. Queued means queued, not delivered.
+- Subscription and platform wrappers match their route families. Staff PATCH supports name/phone/estateIds, not role changes.
+- Tenant move is already a dedicated endpoint; keep it separate from tenant profile PATCH.
+
+### 13.5 M-PESA: new frontend feature, one public tenant page
+
+The backend contract exists for link issuance and SMS evidence processing, but no M-PESA frontend capability is implemented. Build a small feature area, not a tenant portal.
+
+**Public route:** src/app/(public)/pay/page.tsx resolves to exactly one browser page, /pay. It contains a short explanation, one SMS text field, one submit action, and pending/success/error states. It has no tenant account, login, dashboard, balance, checkout, payment history, receipt inbox, or extra public routes.
+
+**Operator surfaces:** add link controls to the existing tenant workspace and a submission review queue under authenticated Payments/Collections.
+
+Suggested feature boundaries:
+- src/lib/api/mpesa-collection.ts: authenticated link/account/payments/submission-review wrappers.
+- src/lib/api/mpesa-public.ts: public SMS submission wrapper.
+- src/features/mpesa/public-submission: the single public page form and state handling.
+- src/features/mpesa/tenant-link: inspect/issue/rotate/revoke/copy behavior embedded in tenant workspace.
+- src/features/mpesa/submissions: list/filter/review UI.
+
+| Route | Request | Response/behavior |
+|---|---|---|
+| GET /mpesa-collection/tenants/:tenantId/account | No body; authenticated scope | Active/closed tenancy balances, combined outstanding, tenant credit, link status/version, pending submissions |
+| GET /mpesa-collection/tenants/:tenantId/payments | Optional limit | { payments: [...] }; payment id, origin, tenancy, amount, date, status, receipt group ID and allocations |
+| GET /mpesa-collection/tenants/:tenantId/link | No body | Safe link view or null; never returns prior token |
+| POST /mpesa-collection/tenants/:tenantId/link | No body | { link, token }; raw token once; issuing may rotate/invalidate prior token |
+| POST /mpesa-collection/tenants/:tenantId/link/revoke | No body | Revokes link and returns safe view |
+| GET /mpesa-collection/submissions | Optional state and limit; default reviewable states | { submissions: [...] }; tenant/estate, state/reason, amount, receipt number, created time and linked provider transaction ID |
+| POST /mpesa-collection/submissions/:id/resolve | { action, reasonCode }; REJECT or RETRY_MATCH; reason codes DUPLICATE, WRONG_TENANT, NOT_A_RENT_PAYMENT, UNREADABLE, OTHER_DOCUMENTED | Returns id/state and audits action; no approve/force-match |
+| POST /public/mpesa/submissions | Exact { token, text }; JSON body limit 4 KB | 202 { received:true } accepted; neutral 404 invalid/unavailable link; 400/413 invalid/oversized; 503 unavailable |
+
+The public endpoint is outside authenticated cookie/CSRF middleware. Add an explicit unauthenticated request method to the shared API boundary (omit session cookies and CSRF header); do not use page-level fetch.
+
+**Token and notification rules:** raw token is returned only by issue/rotation; inspection returns metadata only. Build /pay#t=token using the configured app origin, which must match backend FRONTEND_URL. Keep token transient in memory; never store it in TanStack Query, IndexedDB, local storage, analytics, logs or error reports. The backend may queue protected onboarding SMS, but issue response exposes no delivery status: never claim SMS sent/delivered or build a duplicate sender. Do not persist pasted SMS text. A 202 means received for processing, never rent paid. If link.operational is false, explain prerequisites are not operational. SUPER_ADMIN requests need explicit clientId.
+
+### 13.6 Backend gaps: do not invent UI
+
+No canonical MpesaTransaction list/detail, merchant-profile management or manual Daraja Pull endpoint exists. Password reset, notifications and generic settings APIs are also absent. Provider webhooks and scheduled Pull remain backend-only.
+
+### 13.7 Backend corrections needed
+
+1. Add estateId to HouseType create validation; service already requires it. Add effectiveFromPeriod/changeReason to plan-update validation while keeping estate ownership immutable.
+2. Add a safe BankTransaction response DTO for list/unmatched; never serialize claim tokens or raw provider payloads to browsers.
+3. Preserve nullable and tenancy-aware tenant/house financial semantics in frontend DTOs.
+4. Preserve client/estate/role middleware as the security boundary.
+
+### 13.8 Implementation priorities
+
+P0: deposit idempotency header; HouseType create schema and estate selection; BankConnection-to-BankAccount lifecycle; safe BankTransaction DTO; unknown and tenancy-aware balances.
+
+P1: HouseType workspace rebuild; Tenant/House/Payment/BankAccount DTO corrections; estate filter/cache-key plumbing; billing-config ID/effective dates; new M-PESA public page, operator link controls and evidence review queue.
+
+P2: canonical receipt inbox, merchant management and manual Pull only after backend endpoints exist.
