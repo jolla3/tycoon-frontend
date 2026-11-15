@@ -2,14 +2,16 @@
 
 > Read this file first for a compact project map.  
 > Audited: 2026-11-15  
-> Frontend baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
-> Backend contract baseline: `jolla3/tycoon-estates-backend` `main` @ `5aa05a2e81cb1ddc97f5507341a54a6b4a47ecb4`  
+> Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
+> Documentation branch: `docs/frontend-planning-baseline`  
+> Backend contract baseline: `jolla3/tycoon-estates-backend` `feat/superadmin-subscription-entitlements` @ `cc98900ba338f5b1e19bdcfe923e4dc45bc87745`  
+> Backend status: platform and entitlement changes are implemented in source; behavioural verification is pending.  
 > Detailed product requirements: [`PRD.md`](PRD.md)  
 > Endpoint-to-screen map: [`FRONTEND_ENDPOINT_SCREEN_MATRIX.md`](docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md)
 
 ## Agent context — compact outline
 
-- **Product:** multi-tenant property/rent operations workspace for owners, admins, and staff, plus a separate SUPER_ADMIN platform console.
+- **Product:** multi-tenant property/rent operations workspace for owners, admins, and staff, plus a distinct SUPER_ADMIN control plane for client provisioning, product entitlements, diagnostics and read-only integration monitoring.
 - **Not the product:** a full tenant portal. The tenant-facing M-PESA feature is a public one-time-link submission page only.
 - **Frontend:** Next.js 14 App Router, React 18, strict TypeScript, MUI 6, TanStack Query 5, IndexedDB via `idb`, Recharts, Lucide React, Motion, and React Three Fiber only for the landing hero.
 - **Backend:** Express API under `/api/v1`; it owns authentication, authorization, tenant/client scope, business rules, ledger state, bank/provider credentials, reconciliation, and canonical records.
@@ -82,7 +84,7 @@ The frontend is a client of the backend, not a second domain service. It must no
 
 ### Domain modules
 
-The current wrappers cover auth, profile, estates, houses, house types, tenants, billing, payments, deposits, banking accounts, bank transactions, SMS, reports, staff/users, subscription, and platform administration.
+The current wrappers cover auth, profile, estates, houses, house types, tenants, billing, payments, deposits, banking accounts, bank transactions, SMS, reports, staff/users, subscription and an older platform administration module. Its platform DTOs and filters do not yet represent V2 contracts. No frontend wrappers exist yet for entitlement inventory, client diagnostics or platform-wide Banking/M-PESA monitoring.
 
 There is no M-PESA collection wrapper yet. Bank-connection routes are also not represented in the frontend API layer. The barrel at `src/lib/api/index.ts` does not currently re-export all existing domain modules; direct imports are in use. Treat barrel cleanup as code hygiene, not a substitute for implementing missing APIs.
 
@@ -288,3 +290,146 @@ No canonical MpesaTransaction list/detail, merchant profile CRUD or manual Daraj
 - Current account, closed-tenancy arrears, tenant credit and pending M-PESA evidence remain distinct.
 - BankTransaction, MpesaSmsSubmission, MpesaTransaction and Payment are not interchangeable.
 - Money remains integer cents through the API layer; KES formatting is presentation-only.
+
+
+## 14. Superadmin platform V2 architecture
+
+This section is authoritative for the frontend control-plane design and is based on backend branch feat/superadmin-subscription-entitlements at cc98900ba338f5b1e19bdcfe923e4dc45bc87745. Backend changes are implemented in source; behavioural verification is pending.
+
+### 14.1 Workspace boundary
+
+Keep one Next.js application and the existing (platform) route group. Do not create a second frontend, duplicate session provider or parallel authorization system.
+
+- (dashboard) remains the normal client property-operations workspace.
+- (platform) remains the SUPER_ADMIN-only platform control plane.
+- Platform-wide pages aggregate cross-client data.
+- Client detail/diagnostics pages operate on an explicitly selected client ID while preserving the real SUPER_ADMIN actor. This is not impersonation.
+- The dedicated platform diagnostics endpoint can inspect inactive clients; do not weaken clientContext or normal client-route authorization.
+
+Every /api/v1/platform route runs authenticate and authorize('SUPER_ADMIN'). Frontend guards/navigation are usability controls, not the security boundary.
+
+### 14.2 Target route structure
+
+    src/app/(platform)/platform/
+    ├── page.tsx                         # Overview
+    ├── clients/
+    │   ├── page.tsx                     # Client directory + provisioning
+    │   └── [clientId]/
+    │       ├── page.tsx                 # Client workspace
+    │       └── diagnostics/
+    │           └── page.tsx             # Optional deep-link diagnostics route
+    ├── entitlements/page.tsx            # Product assignment inventory
+    ├── integrations/
+    │   ├── banking/page.tsx             # Read-only Banking monitor
+    │   └── mpesa/page.tsx               # Read-only M-PESA monitor
+    ├── users/page.tsx
+    ├── subscriptions/page.tsx
+    ├── audit/page.tsx
+    └── health/page.tsx
+
+Client workspace tabs: Overview, Products & Subscription, Integrations, Diagnostics and Activity. Diagnostics may also have a deep-link route, but should have one implementation.
+
+Target navigation: Overview, Clients, Entitlements, Integrations, Users, Subscriptions, Audit and System Health. Integrations may group Banking and M-PESA beneath one parent.
+
+### 14.3 Feature and API module boundaries
+
+Keep all HTTP traffic through src/lib/api/client.ts. Do not add page-level fetch calls or platform-specific copies of cookie/CSRF logic.
+
+Split the existing platform module by domain as implementation proceeds:
+
+    src/lib/api/platform/
+    ├── overview.ts
+    ├── clients.ts
+    ├── entitlements.ts
+    ├── diagnostics.ts
+    ├── integrations.ts
+    ├── users.ts
+    ├── subscriptions.ts
+    ├── audit.ts
+    └── health.ts
+
+    src/features/platform/
+    ├── overview/
+    ├── clients/
+    ├── entitlements/
+    ├── integrations/{banking,mpesa}/
+    ├── diagnostics/
+    ├── users/
+    ├── subscriptions/
+    ├── audit/
+    └── health/
+
+The existing src/lib/api/platform.ts may temporarily re-export new modules during migration. DTO and query logic must have one owner. Avoid a big-bang framework/state-management rewrite; the current Next.js, React, strict TypeScript, MUI and TanStack Query stack is sufficient.
+
+### 14.4 Platform API contract map
+
+New SUPER_ADMIN-only endpoints:
+- PATCH /api/v1/platform/clients/:clientId/subscription — update plan, products and dates for an existing subscription.
+- GET /api/v1/platform/entitlement-inventory — paginated client/product assignment inventory.
+- GET /api/v1/platform/clients/:clientId/diagnostics — read-only client diagnostics, audit and job evidence.
+- GET /api/v1/platform/integrations/banking — read-only BankConnection monitoring and account rollups.
+- GET /api/v1/platform/integrations/mpesa — read-only merchant-profile monitoring and ingestion evidence.
+
+Expanded existing endpoints:
+- POST /platform/clients accepts products, startDate and endDate.
+- GET /platform/clients supports search, product, plan, subscription and integration filters and returns enriched rows.
+- GET /platform/clients/:clientId returns expanded subscription, product, portfolio and integration details.
+- GET /platform/overview adds productAssignments, bankingIntegration and mpesaIntegration distributions.
+- GET /platform/health returns nested application, mongo, redis, scheduler, banking, mpesa and sms objects.
+- GET /subscription includes products and assignment actor fields.
+- POST /subscription/upgrade remains mounted but always returns 403 FORBIDDEN; customer self-service plan upgrades are retired.
+
+Subscription PATCH accepts plan (trial/basic/pro), products (BANKING/MPESA), startDate and endDate (date or null to clear). Empty/unknown-key bodies are rejected; status is immutable. The route does not create a missing Subscription. Treat this as a backend creation/repair dependency, not a form to retry.
+
+### 14.5 Query-state and invalidation
+
+The client directory query key includes page, limit, search, product, plan, subscriptionStatus, hasSubscription, bankProvider, bankConnectionStatus, bankAccountConnectionStatus, bankValidationStatus, mpesaState, callbackCapability, pullCapability, c2bRegistrationState, pullRegistrationState and isActive.
+
+Query-key families:
+- ['platform','overview']
+- ['platform','clients',filters]
+- ['platform','client',clientId]
+- ['platform','diagnostics',clientId]
+- ['platform','entitlements',filters]
+- ['platform','integrations','banking',filters]
+- ['platform','integrations','mpesa',filters]
+- ['platform','subscriptions',filters]
+- ['platform','audit',filters]
+- ['platform','health']
+
+After provisioning/subscription updates, invalidate client detail/list, entitlement inventory, subscription list and overview. After activation changes, invalidate directory/detail, diagnostics and overview. Never present a client-side filter of one paginated page as a complete platform-wide result.
+
+### 14.6 Entitlement and integration semantics
+
+Subscription.products is the sole source for product entitlement. A bank connection or merchant profile is integration evidence, not an entitlement grant. An entitled client may still lack a ready provider integration.
+
+The backend gate checks Client existence, isActive === true and products membership. It does not currently enforce subscription status or start/end dates. Render 403 PRODUCT_NOT_ENTITLED with the backend product/reason and distinguish it from provider configuration/readiness.
+
+- BANKING: /bank/*, /bank/connections/* and /transactions/*.
+- MPESA: /mpesa-collection/*.
+- Rent billing, manual payments, deposits and standard SMS are not gated by these product checks.
+
+Remove client self-service subscription upgrades. The Platform Manager owns plan/product/date changes.
+
+### 14.7 Monitoring and health safety
+
+Platform Banking monitoring is one row per BankConnection with BankAccount rollups. Platform M-PESA monitoring is one row per merchant profile and keeps callback capability independent from Pull capability. Both screens are read-only.
+
+Never model credential references, ciphertext, account secrets, OAuth tokens or raw provider payloads in browser DTOs. Do not add reauthorization/disconnect/merchant CRUD/manual Pull controls to these Superadmin views.
+
+Health generation makes no live provider calls. Configured, implemented, provider-verified and operational are distinct states. Co-op implementation/configuration is not live verification; KCB/Equity/NCBA remain unimplemented; Daraja app credential presence is not per-Till authorization; SMS provider acceptance does not prove handset delivery.
+
+The current health page expects flat string fields and calls string methods such as toLowerCase. The new health response is nested objects. Rebuild DTO and page before consuming it.
+
+### 14.8 Rollout and missing capabilities
+
+- Existing/default subscriptions may have products: []. Clients have no Banking/M-PESA entitlement until Manager assignment; rollout requires an explicit assignment plan.
+- A client with no subscription appears in inventory but cannot be repaired using the subscription PATCH route.
+- No automatic entitlement expiry based on status/dates exists.
+- Canonical MpesaTransaction list/detail, merchant-profile CRUD and manual Daraja Pull HTTP endpoints remain absent.
+- Platform integration pages are monitoring-only; provider callbacks and scheduled jobs remain backend-only.
+- Backend platform changes are implemented in source at the recorded branch/commit, but behavioural verification is pending.
+
+### 14.9 Verification boundary
+
+This branch changes planning documents only. No frontend runtime, build, lint or browser acceptance evidence is claimed.

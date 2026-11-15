@@ -1,9 +1,11 @@
 # Tycoon Estates Frontend — Product Requirements
 
-> Status: planning baseline  
+> Status: planning baseline updated for Superadmin platform V2  
 > Audited: 2026-11-15  
-> Frontend baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
-> Backend contract baseline: `jolla3/tycoon-estates-backend` `main` @ `5aa05a2e81cb1ddc97f5507341a54a6b4a47ecb4`  
+> Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
+> Documentation branch: `docs/frontend-planning-baseline`  
+> Backend contract baseline: `jolla3/tycoon-estates-backend` `feat/superadmin-subscription-entitlements` @ `cc98900ba338f5b1e19bdcfe923e4dc45bc87745`  
+> Backend status: platform and entitlement changes are implemented in source; behavioural verification is pending.  
 > Scope: frontend product and integration planning only. This document does not claim that the current screens have passed runtime acceptance.
 
 ## 1. Product definition
@@ -34,7 +36,7 @@ The current UI permission helper treats role-based checks as a usability layer. 
 4. **M-PESA evidence flow:** issue tenant submission links, accept SMS evidence through the public page, and let authorized operators review or resolve submissions.
 5. **Communications:** preview, send, and review tenant SMS messages.
 6. **Reporting:** provide dashboard, arrears, monthly, payment, bank-transaction, billed-vs-paid, SMS, and management reports.
-7. **Platform operations:** let `SUPER_ADMIN` provision clients and inspect platform health, users, audit events, and subscriptions.
+7. **Platform operations:** give SUPER_ADMIN a distinct control plane to provision clients, explicitly assign Banking/M-PESA products, manage existing subscription plan/date/product fields, inspect entitlement inventory, diagnose individual clients, monitor platform-wide Banking and M-PESA integrations, and review users, audit events, subscriptions, and system health.
 
 ## 4. Non-goals
 
@@ -127,7 +129,7 @@ The UI must preserve these domain distinctions:
 | SMS | Preview, send, broadcast, inspect history | Present |
 | Reports | Dashboard, monthly, arrears, payments, bank, SMS, billed-vs-paid, management | Present |
 | Staff | List, create, update permitted fields, activate/deactivate | Present |
-| Settings | Current subscription and supported upgrade action | Present; generic settings capability does not exist |
+| Settings | Read-only current subscription and assigned products | Existing subscription view may be retained; self-service upgrade now returns 403 and must be removed from the customer UI |
 | Platform administration | Overview, clients, users, audit, subscriptions, health | Present |
 | Notifications | Server-backed notification center | Not a backend-backed product capability; do not build as if an API exists |
 | Password recovery | Forgot/reset flow | Blocked: no backend route is exposed |
@@ -147,7 +149,10 @@ The UI must preserve these domain distinctions:
 - **FR-10 Canonical M-PESA receipts:** do not build a receipt inbox until the backend exposes a paginated, client/estate-scoped canonical receipt read endpoint and a documented DTO.
 - **FR-11 Communications:** use the existing SMS preview/send/broadcast/history routes; respect each route's recipient and role rules.
 - **FR-12 Reporting:** use the reporting endpoints and their date/period contracts. Mark unavailable fields as unavailable rather than synthesizing them.
-- **FR-13 Platform admin:** keep platform routes in the SUPER_ADMIN-only route group.
+- **FR-13 Platform admin:** keep platform routes in the SUPER_ADMIN-only route group. Provide platform-wide and explicitly selected-client views without impersonation; expose product assignment, entitlement inventory, client diagnostics and read-only integration monitoring only through documented backend contracts.
+- **FR-16 Entitlement UX:** show 403 PRODUCT_NOT_ENTITLED with the backend product and reason; do not infer access from plan, subscription status/dates, bank connections or merchant profiles.
+- **FR-17 Subscription authority:** the client subscription view is read-only. Remove the self-service upgrade action because POST /subscription/upgrade returns 403; platform administrators manage plan, products and dates.
+- **FR-18 Platform health evidence:** distinguish configured, implemented, provider-verified and operational evidence. The health endpoint makes no live provider calls; do not use a green state to imply live readiness.
 - **FR-14 Feedback:** every mutation needs pending, success, and failure states. Financial success must be shown only after the backend confirms it.
 
 ## 8. Non-functional requirements
@@ -339,3 +344,94 @@ P0: deposit idempotency header; HouseType create schema and estate selection; Ba
 P1: HouseType workspace rebuild; Tenant/House/Payment/BankAccount DTO corrections; estate filter/cache-key plumbing; billing-config ID/effective dates; new M-PESA public page, operator link controls and evidence review queue.
 
 P2: canonical receipt inbox, merchant management and manual Pull only after backend endpoints exist.
+
+
+## 14. Superadmin platform V2 requirements (backend branch 2026-11-15)
+
+This section supplements the earlier platform requirements and supersedes older statements that the console only lists clients, users, subscriptions, audit and health.
+
+### 14.1 Product boundary and navigation
+
+Keep the Superadmin console inside the existing Next.js application and existing platform route group. It is a distinct SUPER_ADMIN control plane, not a second application and not the customer property workspace.
+
+Required navigation: Overview; Clients; Entitlements; Integrations (Banking and M-PESA); Users; Subscriptions; Audit; System Health.
+
+The client workspace is a Manager view of a selected client while retaining the real SUPER_ADMIN actor. It is not impersonation. Diagnostics must work for inactive clients through the dedicated platform endpoint; do not weaken clientContext or normal client authorization.
+
+### 14.2 Client directory and provisioning
+
+GET /api/v1/platform/clients supports page, limit, search, product (BANKING/MPESA/BOTH/NONE), plan, subscriptionStatus, hasSubscription, bankProvider, bankConnectionStatus, bankAccountConnectionStatus, bankValidationStatus, mpesaState, callbackCapability, pullCapability, c2bRegistrationState, pullRegistrationState and isActive.
+
+Rows expose safe client/owner identity, estate/house counts, subscription presence and fields, assigned products, and Banking/M-PESA summaries. Product entitlement and integration readiness are separate dimensions.
+
+POST /api/v1/platform/clients provisions Client, initial CLIENT_OWNER and Subscription atomically. Its strict body supports clientName, ownerName, email, optional phone, password, optional plan (trial/basic/pro), optional products (BANKING/MPESA), optional startDate and optional endDate. products defaults to []. The form must let the Manager choose Banking, M-PESA, both or neither. An empty products array means no entitlement to either product. Never return or redisplay the password.
+
+GET /api/v1/platform/clients/:clientId returns safe owner fields, subscription presence/id/plan/status/dates/products/actor refs, portfolio counts, Banking summary and safe M-PESA profile/ingestion summary.
+
+### 14.3 Subscription and product assignment
+
+PATCH /api/v1/platform/clients/:clientId/subscription updates an existing subscription. Its strict partial body accepts plan (trial/basic/pro), products (BANKING/MPESA), startDate and endDate (date or null to clear). It rejects empty bodies, unknown fields and status changes. Duplicate products and endDate before startDate are rejected. The update and required audit are transactional.
+
+This route does not create a missing subscription. Show a distinct missing-subscription state and do not offer an edit form that will fail. Backend Manager creation/repair support or a controlled migration is required.
+
+Subscription status and start/end dates do not currently participate in the entitlement decision. Do not invent automatic expiry.
+
+### 14.4 Entitlement inventory
+
+GET /api/v1/platform/entitlement-inventory supports page, limit, product (BANKING/MPESA/BOTH/NONE) and isActive. It includes clients without subscriptions. Rows contain clientId, name, isActive, hasSubscription, plan, status, products, assignedByUserId, lastChangedByUserId and updatedAt.
+
+Distinguish no subscription, an existing subscription with products: [], Banking only, M-PESA only, and both. NONE includes no-subscription clients and clients whose subscription has an empty products array. Use the response as source of truth.
+
+### 14.5 Client diagnostics
+
+GET /api/v1/platform/clients/:clientId/diagnostics is read-only and supports inactive clients. It returns client detail, operationalAccess (clientActive, ordinaryOperationsBlocked, and per-product entitled/reason), up to 25 safe audit records and job outcomes. Job outcomes include job name, last run, outcome, finish time and per-client counts where reported.
+
+Diagnostics explain operational state. They are not impersonation, remote shell or mutation tools.
+
+### 14.6 Platform-wide integration monitoring
+
+GET /api/v1/platform/integrations/banking returns one row per BankConnection with safe client identity, provider/connection status, reauthorization indication, safe auth evidence and BankAccount rollups. Filters: page, limit, clientId, clientIsActive, provider, status, validationStatus and accountConnectionStatus. Rollups include account count, validation/connection distributions, poll/statement/balance/webhookIngest capability counts and latest sync evidence.
+
+GET /api/v1/platform/integrations/mpesa returns merchant-profile rows with safe client identity, merchant type/shortcode, operational state, independent callback and Pull capabilities, C2B/Pull registration states, ingestion evidence and backend-derived blockers. Filters: page, limit, clientId, clientIsActive, operationalState, callbackCapability, pullCapability, c2bRegistrationState and pullRegistrationState.
+
+Both endpoints are read-only. Never return credential references, encrypted credentials/account values, access tokens, secrets or raw provider payloads. Do not add reauthorize, disconnect, merchant CRUD or manual Pull actions to these monitoring pages.
+
+### 14.7 Overview and health
+
+GET /api/v1/platform/overview retains legacy KPIs and adds productAssignments, bankingIntegration and mpesaIntegration distributions. Product assignment comes from Subscription.products; integration summaries come from integration records. Do not merge these metrics.
+
+GET /api/v1/platform/health returns generatedAt and nested application, mongo, redis, scheduler, banking, mpesa and sms objects. The endpoint makes no live provider calls. Configuration does not prove operational readiness. Co-op adapter/configuration is not provider verification; KCB/Equity/NCBA are not implemented; Daraja platform credential presence is not per-Till authorization; SMS provider acceptance is not handset delivery.
+
+The old frontend PlatformHealth type/page expects flat strings for application/Mongo/Redis. The new response is nested objects; rebuild the DTO and health page before connecting it to this contract.
+
+### 14.8 Entitlement behavior in the client workspace
+
+The backend gate checks that Client exists, isActive is true and Subscription.products contains the requested product. It does not infer access from plan, subscription status/dates, payment history, bank connections or merchant profiles. Denial is 403 PRODUCT_NOT_ENTITLED with product and reason.
+
+BANKING gates /bank/*, /bank/connections/* and /transactions/*. MPESA gates /mpesa-collection/*. Banking, Transactions and M-PESA operator screens must render a product-specific blocked state using the backend reason. Rent billing, manual payments, deposits, standard SMS and public/provider ingress are not gated by these product middleware rules.
+
+POST /api/v1/subscription/upgrade stays mounted but always returns 403 FORBIDDEN. Remove the client-facing upgrade action; show current plan/products read-only. Subscription changes are managed by Superadmin.
+
+### 14.9 Rollout risks and backend gaps
+
+- Existing and newly created default subscriptions can have products: []. Existing clients remain blocked from Banking/M-PESA until the Manager explicitly assigns products. Rollout requires a reviewed assignment/migration plan.
+- The subscription PATCH route cannot create a missing subscription.
+- No automatic entitlement expiry from status or dates exists.
+- Canonical MpesaTransaction list/detail, merchant-profile CRUD and manual Daraja Pull HTTP endpoints remain absent.
+- Platform integration pages are monitoring-only; provider callbacks and scheduled jobs remain backend-only.
+- Backend changes are implemented in source on feat/superadmin-subscription-entitlements at cc98900ba338f5b1e19bdcfe923e4dc45bc87745, but behavioural verification is pending.
+
+### 14.10 Acceptance criteria
+
+- [ ] Navigation exposes Overview, Clients, Entitlements, Integrations, Users, Subscriptions, Audit and System Health.
+- [ ] Provisioning supports explicit products and subscription dates.
+- [ ] Directory filters match the backend query contract and are part of query keys.
+- [ ] Client detail distinguishes missing subscription from empty products.
+- [ ] Entitlement inventory includes clients without subscriptions.
+- [ ] Integrations screens are read-only and never expose secrets.
+- [ ] Diagnostics works for inactive clients without impersonation.
+- [ ] Overview separates product assignment from integration readiness.
+- [ ] Health uses nested DTOs and never presents configuration as live verification.
+- [ ] Client Banking, Transactions and M-PESA screens handle PRODUCT_NOT_ENTITLED.
+- [ ] Customer self-service upgrade is removed.
+- [ ] Verification is performed against the corresponding backend branch and recorded honestly.

@@ -2,7 +2,8 @@
 
 > Audited: 2026-11-15  
 > Frontend source baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
-> Backend API baseline: `jolla3/tycoon-estates-backend` `main` @ `5aa05a2e81cb1ddc97f5507341a54a6b4a47ecb4`  
+> Backend API baseline: `jolla3/tycoon-estates-backend` `feat/superadmin-subscription-entitlements` @ `cc98900ba338f5b1e19bdcfe923e4dc45bc87745`  
+> Backend status: platform/entitlement changes are implemented in source; behavioural verification is pending.  
 > API base prefix: `/api/v1`  
 > This is a code-level mapping, not a claim that the live deployment was exercised.
 
@@ -25,7 +26,7 @@ The current App Router has these main route groups:
 
 - Public: landing `/`, login `/login`, privacy, terms. **No `/pay` route exists.**
 - Client workspace: dashboard, estates, house types, houses, tenants, payments, transactions, unmatched transactions, banking, SMS, reports, staff, profile, settings.
-- Platform: overview, clients, users, subscriptions, audit, health.
+- Platform routes currently present in frontend source: overview, clients, users, subscriptions, audit and health. V2 target adds entitlement inventory, integrations monitoring, client detail and diagnostics.
 
 The checked package manifest has `dev`, `build`, `start`, `lint`, and `typecheck` scripts, but no `test` script. No frontend test files were found in the checked repository tree.
 
@@ -389,3 +390,109 @@ P0: deposit Idempotency-Key; HouseType create schema + estate selection; BankCon
 P1: HouseType workspace rebuild; Tenant/House/Payment/BankAccount DTO corrections; estate filter/cache-key plumbing; billing config ID/effective dates; new M-PESA public page + operator link controls + evidence review queue.
 
 P2: canonical receipt inbox, merchant management and manual Pull only after backend endpoints exist.
+
+
+## 17. Superadmin platform V2 endpoint-to-screen contract
+
+This section supersedes older platform rows in §3 and any earlier statement that those rows are fully wired. Backend source baseline: feat/superadmin-subscription-entitlements at cc98900ba338f5b1e19bdcfe923e4dc45bc87745. Implementation is in source; behavioural verification is pending.
+
+All /api/v1/platform/* routes require authenticate and authorize('SUPER_ADMIN').
+
+### 17.1 New platform endpoints
+
+| Backend endpoint | Request/query contract | Response purpose | Required frontend screen | Current frontend state |
+|---|---|---|---|---|
+| PATCH /platform/clients/:clientId/subscription | Strict partial body: plan (trial/basic/pro), products[] (BANKING/MPESA), startDate, endDate (date or null to clear); non-empty; no status/unknown keys | Updated public subscription DTO with products and actor fields | Client detail → Products & Subscription | Missing wrapper and UI |
+| GET /platform/entitlement-inventory | page, limit, product (BANKING/MPESA/BOTH/NONE), isActive | Paginated product assignment inventory including clients without subscriptions | /platform/entitlements | Missing wrapper and UI |
+| GET /platform/clients/:clientId/diagnostics | clientId path; read-only | Operational access, entitlement reasons, recent audit records and job outcomes | Client detail → Diagnostics | Missing wrapper and UI |
+| GET /platform/integrations/banking | page, limit, clientId, clientIsActive, provider, status, validationStatus, accountConnectionStatus | One row per BankConnection with safe client identity, auth evidence and BankAccount rollups | /platform/integrations/banking | Missing wrapper and UI |
+| GET /platform/integrations/mpesa | page, limit, clientId, clientIsActive, operationalState, callbackCapability, pullCapability, c2bRegistrationState, pullRegistrationState | One row per merchant profile with callback/Pull, registration, ingestion evidence and blockers | /platform/integrations/mpesa | Missing wrapper and UI |
+
+### 17.2 Expanded existing platform contracts
+
+| Backend endpoint | Backend contract change | Frontend requirement | Current gap |
+|---|---|---|---|
+| GET /platform/clients | Filters: page, limit, search, product, plan, subscriptionStatus, hasSubscription, bankProvider, bankConnectionStatus, bankAccountConnectionStatus, bankValidationStatus, mpesaState, callbackCapability, pullCapability, c2bRegistrationState, pullRegistrationState, isActive. Rows add owner, counts, subscription presence/data/products and Banking/M-PESA summaries | Complete filter model, paginated table and product/integration summaries; include all filters in query keys | Current wrapper only exposes page/limit/isActive; row DTO is stale |
+| POST /platform/clients | Adds optional products, startDate and endDate; products defaults to [] | Explicit Banking/M-PESA/both/neither assignment and supported dates | Current form/input omits products and dates |
+| GET /platform/clients/:clientId | Adds safe owner, subscription presence/id/plan/status/dates/products/actor refs, counts, Banking summary and safe M-PESA profiles/evidence | Client workspace tabs: Overview, Products & Subscription, Integrations, Diagnostics, Activity | Wrapper type stale; no platform detail route |
+| GET /platform/overview | Adds productAssignments, bankingIntegration and mpesaIntegration distributions | Separate assignment metrics from integration readiness | Existing overview renders legacy KPIs only |
+| GET /platform/health | Returns generatedAt plus nested application, mongo, redis, scheduler, banking, mpesa and sms evidence | Rebuild DTO and health page for nested objects | Existing page expects flat strings and calls string methods on them; likely runtime failure |
+| GET /subscription | Public DTO adds products, assignedByUserId and lastChangedByUserId | Show assigned products; read-only customer subscription view | Current type/UI needs update |
+| POST /subscription/upgrade | Always returns 403 FORBIDDEN; no mutation | Remove client upgrade action | Existing wrapper/UI implies self-service upgrade |
+
+### 17.3 New response models and display rules
+
+**Entitlement inventory row:** clientId, name, isActive, hasSubscription, plan, status, products, assignedByUserId, lastChangedByUserId and updatedAt. Distinguish no subscription from an existing subscription with products: [].
+
+**Diagnostics response:** client, operationalAccess (clientActive, ordinaryOperationsBlocked and per-product entitled/reason), recentAudit (up to 25 safe rows) and jobOutcomes. Diagnostics is read-only and supports inactive clients. It is not impersonation.
+
+**Banking integration row:** connectionId; clientId/clientName/clientIsActive; provider/displayName/status/needsReauthorization; authEvidence (lastAuthAt, tokenExpiresAt, lastAuthError); accounts (accountCount, validationStatuses, accountConnectionStatuses, capabilities, lastSyncAttemptAt, lastSyncSuccessAt, lastSyncErrorCategory); timestamps.
+
+**M-PESA integration row:** client identity; merchant profile identity/displayName/type/shortcode; operationalState; callbackCapability and pullCapability independently; C2B/Pull registration states; lastPullRegisteredAt; per-channel ingestionEvidence; backend-derived blockers.
+
+Integration DTOs are read-only and must not expose secrets, credential references, encrypted account values, access tokens or raw provider payloads.
+
+### 17.4 Product entitlement gates affecting existing client screens
+
+| Customer endpoint family | Required entitlement | Frontend surfaces that must handle 403 |
+|---|---|---|
+| /bank/* and /bank/connections/* | BANKING | Banking and connection management |
+| /transactions/* | BANKING | Transactions and unmatched bank-transaction reconciliation |
+| /mpesa-collection/* | MPESA | M-PESA tenant-link and evidence-review features |
+
+Denial is 403 PRODUCT_NOT_ENTITLED with product and one of: PRODUCT_UNKNOWN, CLIENT_NOT_FOUND, CLIENT_INACTIVE, SUBSCRIPTION_MISSING, PRODUCT_NOT_ASSIGNED. The gate checks Client existence, isActive === true and Subscription.products membership. It does not infer entitlement from plan, status, dates, payments, bank connections or merchant profiles.
+
+Do not gate rent billing, manual payments, deposits, standard SMS, public/provider ingress or unrelated property operations because those are not covered by these product gates.
+
+### 17.5 Platform navigation and screen map
+
+| Navigation | Route | Primary endpoint(s) | Responsibility |
+|---|---|---|---|
+| Overview | /platform | GET /platform/overview | KPIs, product assignment and integration distributions |
+| Clients | /platform/clients | GET/POST /platform/clients; PATCH /platform/clients/:id; activate/deactivate | Search/filter, provision and manage client state |
+| Client workspace | /platform/clients/:clientId | GET client; PATCH client subscription | Selected-client overview and Manager product/subscription controls |
+| Client diagnostics | /platform/clients/:clientId/diagnostics | GET client diagnostics | Read-only access, audit and job evidence |
+| Entitlements | /platform/entitlements | GET /platform/entitlement-inventory | Product assignment inventory |
+| Integrations — Banking | /platform/integrations/banking | GET /platform/integrations/banking | Cross-client bank connections/accounts |
+| Integrations — M-PESA | /platform/integrations/mpesa | GET /platform/integrations/mpesa | Merchant profiles and ingestion |
+| Users | /platform/users | GET /platform/users | Platform user directory |
+| Subscriptions | /platform/subscriptions | GET /platform/subscriptions | Subscription records |
+| Audit | /platform/audit | GET /platform/audit | Platform audit history |
+| System Health | /platform/health | GET /platform/health | Nested dependency/provider/job evidence |
+
+### 17.6 API module and cache organization
+
+Recommended modules:
+- src/lib/api/platform/overview.ts
+- src/lib/api/platform/clients.ts
+- src/lib/api/platform/entitlements.ts
+- src/lib/api/platform/diagnostics.ts
+- src/lib/api/platform/integrations.ts
+- src/lib/api/platform/users.ts
+- src/lib/api/platform/subscriptions.ts
+- src/lib/api/platform/audit.ts
+- src/lib/api/platform/health.ts
+
+Recommended query keys:
+- ['platform','overview']
+- ['platform','clients',filters]
+- ['platform','client',clientId]
+- ['platform','diagnostics',clientId]
+- ['platform','entitlements',filters]
+- ['platform','integrations','banking',filters]
+- ['platform','integrations','mpesa',filters]
+- ['platform','users',filters]
+- ['platform','subscriptions',filters]
+- ['platform','audit',filters]
+- ['platform','health']
+
+After provisioning/subscription changes, invalidate client directory/detail, entitlement inventory, subscriptions and overview. After activation changes, invalidate directory/detail, diagnostics and overview. Do not present local filtering of one server page as a global result.
+
+### 17.7 Explicit backend gaps and rollout warnings
+
+- PATCH /platform/clients/:clientId/subscription updates an existing subscription only. It cannot create one for an existing client with no subscription; backend Manager creation/repair or migration is required.
+- Existing subscriptions default to products: []. Existing clients are denied Banking/M-PESA until explicit product assignment. Plan a controlled rollout; do not silently grant products.
+- Subscription status and dates do not automatically expire entitlements.
+- No canonical MpesaTransaction list/detail, merchant-profile CRUD or manual Pull HTTP endpoint exists. Do not invent those screens/actions.
+- Platform Banking/M-PESA integration endpoints are read-only. No mutation controls belong on those monitoring pages.
+- Backend V2 implementation is present in source, but behavioural verification is pending. No frontend runtime verification is implied by this matrix.
