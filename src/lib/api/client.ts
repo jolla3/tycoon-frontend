@@ -20,12 +20,15 @@
 // surface as a confusing generic network error. Development may fall back
 // to localhost for convenience.
 function resolveApiBaseUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (configured) return configured;
   if (process.env.NODE_ENV !== 'production') return 'http://localhost:4000/api/v1';
-  throw new Error(
-    'NEXT_PUBLIC_API_BASE_URL is not set. This must be configured at build time for production — see .env.example.'
-  );
+
+  // Production defaults to the same-origin Next.js rewrite. This keeps
+  // session cookies and CSRF same-site and avoids requiring a public
+  // cross-origin backend URL in the browser bundle. next.config.js must
+  // have BACKEND_URL configured for this rewrite to reach the backend.
+  return '/api/v1';
 }
 
 // Resolved lazily (not at module top) so an accidental missing env var in
@@ -131,13 +134,34 @@ export function getApiHealthUrl(): string {
 }
 
 function buildUrl(path: string, query?: RequestOptions['query']): string {
-  const url = new URL(`${getApiBaseUrl()}${path}`);
+  const base = getApiBaseUrl().replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : '/' + path;
+  const requestPath = base + normalizedPath;
+  const isAbsoluteBase = /^[a-z][a-z\d+.-]*:\/\//i.test(base);
+
+  // Browser requests using /api/v1 stay same-origin and pass through the
+  // Next.js rewrite. Server-side requests use the current Vercel deployment
+  // origin (or localhost during local development).
+  const deploymentHost = process.env.VERCEL_URL?.replace(/^https?:\/\//, '');
+  const applicationOrigin =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : deploymentHost
+        ? 'https://' + deploymentHost
+        : 'http://localhost:3000';
+
+  const url = new URL(requestPath, applicationOrigin);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
     }
   }
-  return url.toString();
+
+  // Keep relative URLs relative in the browser so the request uses this
+  // deployment's same-origin rewrite. Absolute API bases remain absolute.
+  return isAbsoluteBase || typeof window === 'undefined'
+    ? url.toString()
+    : url.pathname + url.search;
 }
 
 /** Shape every controller in the backend returns (apiResponse.js). */
