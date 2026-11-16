@@ -2,35 +2,37 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Chip, Select, MenuItem, Box, Pagination, Typography } from '@mui/material';
+import { Card, Chip, MenuItem, Select, Typography } from '@mui/material';
 import { Users } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
+import { ActiveChip } from '@/features/platform/product-chips';
+import { TablePager } from '@/features/platform/table-pager';
 import { platformApi, type PlatformUserRow } from '@/lib/api/platform';
+import { platformKeys } from '@/lib/query/keys';
 import { dateFormat } from '@/lib/dates/period';
 
 export default function PlatformUsersPage() {
   const [page, setPage] = useState(1);
   const [role, setRole] = useState('');
+  const filters = { page, limit: 20, role: role || undefined };
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['platform', 'users', page, role],
-    queryFn: () => platformApi.listUsers({ page, limit: 20, role: role || undefined }),
-  });
+  const { data, isLoading, error } = useQuery({ queryKey: platformKeys.users(filters), queryFn: () => platformApi.users.list(filters) });
 
   const columns: DataTableColumn<PlatformUserRow>[] = [
     { key: 'name', header: 'Name', render: (u) => u.name },
     { key: 'email', header: 'Email', render: (u) => u.email },
+    { key: 'client', header: 'Client', render: (u) => u.client?.name ?? '—' },
     { key: 'role', header: 'Role', render: (u) => <Chip size="small" label={u.role} variant="outlined" /> },
-    { key: 'status', header: 'Status', render: (u) => <Chip size="small" label={u.isActive ? 'Active' : 'Inactive'} color={u.isActive ? 'success' : 'default'} variant="outlined" /> },
+    { key: 'status', header: 'Status', render: (u) => <ActiveChip active={u.isActive} /> },
     { key: 'lastLogin', header: 'Last login', render: (u) => (u.lastLoginAt ? dateFormat(u.lastLoginAt, 'DD MMM YYYY HH:mm') : '—') },
   ];
 
   return (
     <>
-      <PageHeader title="Users" description="All platform and client users (no password material is shown)" />
+      <PageHeader title="Users" description="Platform and client users. Credentials are never shown." />
       <Card sx={{ p: 2, mb: 2 }}>
-        <Select size="small" displayEmpty value={role} onChange={(e) => { setRole(e.target.value); setPage(1); }} sx={{ minWidth: 180 }}>
+        <Select size="small" displayEmpty value={role} onChange={(e) => { setRole(e.target.value); setPage(1); }} sx={{ minWidth: 180 }} inputProps={{ 'aria-label': 'Filter by role' }}>
           <MenuItem value="">All roles</MenuItem>
           <MenuItem value="SUPER_ADMIN">SUPER_ADMIN</MenuItem>
           <MenuItem value="CLIENT_OWNER">CLIENT_OWNER</MenuItem>
@@ -57,11 +59,7 @@ export default function PlatformUsersPage() {
             </Card>
           )}
         />
-        {data && Math.ceil(data.total / data.limit) > 1 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-            <Pagination count={Math.ceil(data.total / data.limit)} page={page} onChange={(_, p) => setPage(p)} size="small" />
-          </Box>
-        )}
+        <TablePager total={data?.total} limit={data?.limit} page={page} onChange={setPage} />
       </Card>
     </>
   );

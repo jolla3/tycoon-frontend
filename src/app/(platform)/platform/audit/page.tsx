@@ -2,69 +2,36 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Box, Pagination, Typography, TextField, Stack } from '@mui/material';
+import { Card, Stack, TextField, Typography } from '@mui/material';
 import { Shield } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
+import { TablePager } from '@/features/platform/table-pager';
 import { platformApi, type PlatformAuditRow } from '@/lib/api/platform';
+import { platformKeys } from '@/lib/query/keys';
 import { dateFormat } from '@/lib/dates/period';
 
 export default function PlatformAuditPage() {
   const [page, setPage] = useState(1);
   const [action, setAction] = useState('');
+  const filters = { page, limit: 30, action: action || undefined };
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['platform', 'audit', page, action],
-    queryFn: () =>
-      platformApi.listAudit({
-        page,
-        limit: 30,
-        action: action || undefined,
-      }),
-  });
+  const { data, isLoading, error } = useQuery({ queryKey: platformKeys.audit(filters), queryFn: () => platformApi.audit.list(filters) });
 
   const columns: DataTableColumn<PlatformAuditRow>[] = [
-    {
-      key: 'when',
-      header: 'When',
-      render: (r) => (r.createdAt ? dateFormat(r.createdAt, 'DD MMM YYYY HH:mm') : '—'),
-    },
+    { key: 'when', header: 'When', render: (r) => (r.createdAt ? dateFormat(r.createdAt, 'DD MMM YYYY HH:mm') : '—') },
     { key: 'action', header: 'Action', render: (r) => r.action },
-    {
-      key: 'resource',
-      header: 'Resource',
-      render: (r) => (r.resource ? `${r.resource}${r.resourceId ? `:${String(r.resourceId).slice(-6)}` : ''}` : '—'),
-    },
-    {
-      key: 'user',
-      header: 'User',
-      render: (r) =>
-        r.userId && typeof r.userId === 'object'
-          ? r.userId.email || r.userId.name || '—'
-          : '—',
-    },
-    {
-      key: 'desc',
-      header: 'Description',
-      render: (r) => r.description || '—',
-    },
+    { key: 'resource', header: 'Resource', render: (r) => r.resource ?? '—' },
+    { key: 'user', header: 'User', render: (r) => r.userId?.email || r.userId?.name || '—' },
+    { key: 'desc', header: 'Description', render: (r) => r.description || '—' },
   ];
 
   return (
     <>
-      <PageHeader title="Audit log" description="Platform-wide audit trail from the backend" />
+      <PageHeader title="Audit log" description="Platform-wide audit trail." />
       <Card sx={{ p: 2, mb: 2 }}>
         <Stack direction="row" spacing={2}>
-          <TextField
-            size="small"
-            label="Filter action"
-            value={action}
-            onChange={(e) => {
-              setAction(e.target.value);
-              setPage(1);
-            }}
-            placeholder="e.g. PAYMENT_RECORDED"
-          />
+          <TextField size="small" label="Filter action" value={action} onChange={(e) => { setAction(e.target.value); setPage(1); }} placeholder="e.g. CLIENT_SUBSCRIPTION_UPDATED" />
         </Stack>
       </Card>
       <Card>
@@ -89,15 +56,7 @@ export default function PlatformAuditPage() {
             </Card>
           )}
         />
-        {data && Math.ceil(data.total / data.limit) > 1 && (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
-            <Pagination
-              count={Math.ceil(data.total / data.limit)}
-              page={page}
-              onChange={(_, p) => setPage(p)}
-            />
-          </Box>
-        )}
+        <TablePager total={data?.total} limit={data?.limit} page={page} onChange={setPage} />
       </Card>
     </>
   );

@@ -94,7 +94,28 @@ type RequestOptions = {
   body?: unknown;
   query?: Record<string, QueryValue>;
   signal?: AbortSignal;
+  /**
+   * Typed extra headers. Only headers on the allowlist below may be set, so a
+   * caller cannot override Content-Type, Accept or X-CSRF-Token (CSRF stays
+   * owned by this module).
+   */
+  idempotencyKey?: string;
 };
+
+/**
+ * Generates an Idempotency-Key. Call this at the DELIBERATE user-action
+ * boundary (the moment the user commits to an action), keep the key for every
+ * retry of that same action, and generate a new one only for a new action.
+ * Never call it inside a mutationFn — a network retry would then silently
+ * mint a new key and defeat server-side duplicate protection.
+ */
+export function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  // Fallback for very old browsers: 128 bits from getRandomValues.
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 export function getApiHealthUrl(): string {
   const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -128,10 +149,11 @@ interface BackendEnvelope<T> {
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, query, signal } = options;
+  const { method = 'GET', body, query, signal, idempotencyKey } = options;
 
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
 
   const isMutation = method !== 'GET';
   if (isMutation) {
@@ -179,9 +201,57 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return payload?.data as T;
 }
 
+/**
+ * Unauthenticated request for the public M-PESA submission endpoint ONLY.
+ *
+ * Deliberately narrow: it never sends the session cookie (`credentials:
+ * 'omit'`) and never attaches a CSRF header, because the backend mounts the
+ * public route outside session/CSRF middleware. It does NOT change how
+ * authenticated requests behave. The returned ApiError never carries response
+ * `details`, so a request body (which holds a one-time token) can never be
+ * echoed into an error object that something might log or report.
+ */
+export async function publicRequest<T>(path: string, body: unknown, signal?: AbortSignal): Promise<{ status: number; data: T | undefined }> {
+  let url: string;
+  try {
+    url = buildUrl(path);
+  } catch (err) {
+    throw new ApiError(err instanceof Error ? err.message : 'The application is not configured correctly.', 'CONFIG_ERROR', 0);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch {
+    throw new ApiError('Unable to connect to the server.', 'NETWORK_ERROR', 0);
+  }
+
+  let payload: BackendEnvelope<T> | undefined;
+  try {
+    payload = await response.json();
+  } catch {
+    // Non-JSON body — rely on status.
+  }
+
+  if (!response.ok || payload?.success === false) {
+    const code = payload?.error?.code ?? `HTTP_${response.status}`;
+    throw new ApiError('The request could not be completed.', code, response.status);
+  }
+  return { status: response.status, data: payload?.data };
+}
+
 export const apiClient = {
   get: <T>(path: string, query?: RequestOptions['query'], signal?: AbortSignal) => apiRequest<T>(path, { method: 'GET', query, signal }),
-  post: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'POST', body, signal }),
+  post: <T>(path: string, body?: unknown, signal?: AbortSignal, extra?: Pick<RequestOptions, 'idempotencyKey'>) =>
+    apiRequest<T>(path, { method: 'POST', body, signal, ...extra }),
   patch: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PATCH', body, signal }),
   put: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PUT', body, signal }),
 };
