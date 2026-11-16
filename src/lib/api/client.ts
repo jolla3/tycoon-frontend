@@ -31,10 +31,8 @@ function resolveApiBaseUrl(): string {
   return '/api/v1';
 }
 
-// Resolved lazily (not at module top) so an accidental missing env var in
-// production surfaces as a normal caught ApiError the first time a request
-// is actually made — not as an uncaught crash during module import, before
-// any error boundary exists to catch it.
+// Resolve lazily so configuration and URL errors are surfaced as catchable
+// ApiErrors when a request is made, not as import-time application crashes.
 let cachedBaseUrl: string | null = null;
 function getApiBaseUrl(): string {
   if (cachedBaseUrl) return cachedBaseUrl;
@@ -142,13 +140,14 @@ function buildUrl(path: string, query?: RequestOptions['query']): string {
   // Browser requests using /api/v1 stay same-origin and pass through the
   // Next.js rewrite. Server-side requests use the current Vercel deployment
   // origin (or localhost during local development).
-  const deploymentHost = process.env.VERCEL_URL?.replace(/^https?:\/\//, '');
   const applicationOrigin =
     typeof window !== 'undefined'
       ? window.location.origin
-      : deploymentHost
-        ? 'https://' + deploymentHost
-        : 'http://localhost:3000';
+      : (() => {
+          // VERCEL_URL is server-only. Do not evaluate it in the browser bundle.
+          const deploymentHost = process.env.VERCEL_URL?.replace(/^https?:\/\//, '');
+          return deploymentHost ? 'https://' + deploymentHost : 'http://localhost:3000';
+        })();
 
   const url = new URL(requestPath, applicationOrigin);
   if (query) {
