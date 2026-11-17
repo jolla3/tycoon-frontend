@@ -496,3 +496,32 @@ After provisioning/subscription changes, invalidate client directory/detail, ent
 - No canonical MpesaTransaction list/detail, merchant-profile CRUD or manual Pull HTTP endpoint exists. Do not invent those screens/actions.
 - Platform Banking/M-PESA integration endpoints are read-only. No mutation controls belong on those monitoring pages.
 - Backend V2 implementation is present in source, but behavioural verification is pending. No frontend runtime verification is implied by this matrix.
+
+## 18. Financial-correctness audit (dashboard, reports, payments, estate/house workspaces)
+
+Rule: a missing, null or unverified financial value renders as "Not available" (`formatMaybeCents` / `formatMaybeNumber`). A backend zero renders as a real zero. No aggregate is substituted for another. Tenant arrears are shown only through `KnownArrearsCard` / `describeKnownArrears`.
+
+| Screen | Status | Change / reason |
+|---|---|---|
+| `dashboard/page.tsx` | IMPLEMENTED | KPIs use maybe-formatters. Collection rate is the backend `collectionRatePercent` only; no client recomputation. Estate chart omits slices without numeric figures. Outstanding relabelled "Open charges (period)". |
+| `dashboard/components/recent-payments-card.tsx` | IMPLEMENTED | Removed the fabricated `{0,0,0}` rent, status and houses objects. Missing sections render "Not available". |
+| `reports/page.tsx` | IMPLEMENTED | Removed `Number(... ?? 0)` and `a \|\| b \|\| 0`. Billed, collected and open charges come only from `billedVsPaid.total` and are no longer replaced by `rent.*`. Unmatched bank uses the all-time field only. Pie slices omit unknown counts. Arrears table is labelled charge-level, not ledger arrears, and not netted for tenant credit. |
+| `payments/page.tsx` | IMPLEMENTED | Origin and status chips; REVERSED rows struck through and not described as confirmed. Server-side estate filter in the cache key; house picker limited to the backend maximum of 100 with a truncation notice. |
+| `houses/page.tsx`, `house-types/page.tsx` | IMPLEMENTED | Billing-line and override amounts no longer default to zero. |
+| tenant, house, estate and house-type workspaces | IMPLEMENTED (previous commit) | Current, earlier-tenancy, unattributed legacy and credit shown separately. |
+
+Retained on purpose (not financial values): `list?.length ?? 0` for empty-state checks, `unclassifiedHouses ?? 0 > 0` as a display condition, allocation-count message text, `portfolio.x ?? houses.x` (same metric from two sections, not a zero), `Number(rentKes || 0)` form input parsing.
+
+Known limits: the dashboard and report DTO types still declare `rent`, `status` and `houses` as required, so the page handles absence defensively but the types are not narrowed to the backend. Report and dashboard figures are charge-based and are not ledger-authoritative. `/reports/payments` returns all payment statuses; no screen consumes it yet.
+
+### 18.1 BLOCKED BY BACKEND: raw BankTransaction responses
+
+Verified in `transaction.service.js`: `list` and `unmatched` call `BankTransaction.find(filter)` with no projection, and the model stores `processingClaimToken` and `rawPayload`. Both fields are therefore serialized to the browser. TypeScript interfaces cannot redact fields from an HTTP response. A safe BankTransaction DTO is an unresolved backend security prerequisite. Safe bank-transaction responses are NOT complete. The frontend wrapper declares only the fields it displays, which does not mitigate the exposure.
+
+### 18.2 Verification commands
+
+`npx tsc --noEmit`, `npx next lint` and `npm test` (vitest, `src/lib/formatting/financial-values.test.ts`: unknown, null, verified zero, unverified zero, positive). `next build` was not run in this milestone.
+
+### 18.3 Still NOT IMPLEMENTED in this branch
+
+Transactions screens (server-side estate filter, processingState chips, entitlement state), the public `/pay` page, operator M-PESA link panel and submission review queue.

@@ -433,3 +433,8 @@ The current health page expects flat string fields and calls string methods such
 ### 14.9 Verification boundary
 
 This branch changes planning documents only. No frontend runtime, build, lint or browser acceptance evidence is claimed.
+
+
+## Financial-correctness audit addendum
+
+Unknown, null and unverified financial values render as "Not available"; verified zeros render as zeros; no aggregate stands in for another. Dashboard, reports, payments, estate/house/tenant workspaces follow this rule (see docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md section 18). Status: IMPLEMENTED. Unresolved BLOCKED BY BACKEND item: `GET /transactions` and `GET /transactions/unmatched` return raw BankTransaction documents including `processingClaimToken` and `rawPayload` (verified: no projection in `transaction.service.js`); a safe DTO is required before bank transaction browsing can be called secure.

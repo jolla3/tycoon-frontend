@@ -20,7 +20,7 @@ import {
 import { DashboardHeader } from './components/dashboard-header';
 import { reportsApi, type PortfolioDashboard } from '@/lib/api/reports';
 import { usePeriod } from '@/features/dashboard/period-context';
-import { formatCents, formatNumber } from '@/lib/formatting/currency';
+import { formatCents, formatMaybeNumber, formatMaybeCents } from '@/lib/formatting/currency';
 import { CardSkeleton } from '@/components/feedback/card-skeleton';
 import { ErrorState } from '@/components/feedback/error-state';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
@@ -73,36 +73,33 @@ export default function DashboardPage() {
 function DashboardBody({ data }: { data: PortfolioDashboard }) {
   const p = data.portfolio;
   const rent = data.rent;
-  const collectionRate =
-    rent?.collectionRatePercent != null
-      ? `${rent.collectionRatePercent}%`
-      : rent?.expectedCents
-        ? `${Math.round(((rent.collectedCents || 0) / rent.expectedCents) * 1000) / 10}%`
-        : '—';
+  // Backend-provided rate only. A missing rate is "Not available", never recomputed or zero.
+  const collectionRate = typeof rent?.collectionRatePercent === 'number' ? `${rent.collectionRatePercent}%` : 'Not available';
 
-  const kpis: { label: string; value: string }[] = [
-    { label: 'Estates', value: formatNumber(p?.estateCount ?? 0) },
-    { label: 'Houses', value: formatNumber(p?.houseCount ?? data.houses?.total ?? 0) },
+  const kpis: { label: string; value: string; note?: string }[] = [
+    { label: 'Estates', value: formatMaybeNumber(p?.estateCount) },
+    { label: 'Houses', value: formatMaybeNumber(p?.houseCount ?? data.houses?.total) },
     {
       label: 'Occupied / Vacant',
-      value: `${formatNumber(p?.occupiedHouses ?? data.houses?.occupied ?? 0)} / ${formatNumber(p?.vacantHouses ?? data.houses?.vacant ?? 0)}`,
+      value: `${formatMaybeNumber(p?.occupiedHouses ?? data.houses?.occupied)} / ${formatMaybeNumber(p?.vacantHouses ?? data.houses?.vacant)}`,
     },
     {
       label: 'Occupancy',
-      value: p?.occupancyRatePercent != null ? `${p.occupancyRatePercent}%` : '—',
+      value: typeof p?.occupancyRatePercent === 'number' ? `${p.occupancyRatePercent}%` : 'Not available',
     },
-    { label: 'Tenants', value: formatNumber(p?.tenantCount ?? 0) },
-    { label: 'Billed (period)', value: formatCents(rent?.expectedCents ?? 0) },
-    { label: 'Collected', value: formatCents(rent?.collectedCents ?? 0) },
-    { label: 'Outstanding', value: formatCents(rent?.outstandingCents ?? 0) },
+    { label: 'Tenants', value: formatMaybeNumber(p?.tenantCount) },
+    { label: 'Billed (period)', value: formatMaybeCents(rent?.expectedCents), note: 'Rent charges for the period' },
+    { label: 'Collected', value: formatMaybeCents(rent?.collectedCents), note: 'Confirmed payments applied to period charges' },
+    { label: 'Open charges (period)', value: formatMaybeCents(rent?.outstandingCents), note: 'Unpaid charges, not tenant balances' },
     { label: 'Collection rate', value: collectionRate },
   ];
 
-  const estateChart = (data.byEstate ?? []).map((e) => ({
-    name: e.name.length > 14 ? `${e.name.slice(0, 12)}…` : e.name,
-    Billed: Math.round((e.billedCents || 0) / 100),
-    Collected: Math.round((e.collectedCents || 0) / 100),
-  }));
+  // Chart values come straight from the backend; a slice with no figure is omitted rather than plotted as zero.
+  const estateChart = (data.byEstate ?? []).flatMap((e) =>
+    typeof e.billedCents === 'number' && typeof e.collectedCents === 'number'
+      ? [{ name: e.name.length > 14 ? `${e.name.slice(0, 12)}…` : e.name, Billed: Math.round(e.billedCents / 100), Collected: Math.round(e.collectedCents / 100) }]
+      : []
+  );
 
   const typeChart = (data.byHouseType ?? []).map((e) => ({
     name: e.name.length > 14 ? `${e.name.slice(0, 12)}…` : e.name,
@@ -123,6 +120,7 @@ function DashboardBody({ data }: { data: PortfolioDashboard }) {
                 <Typography variant="h6" sx={{ fontFamily: '"IBM Plex Mono", monospace', mt: 0.5 }}>
                   {c.value}
                 </Typography>
+                {c.note ? <Typography variant="caption" color="text.secondary">{c.note}</Typography> : null}
               </CardContent>
             </Card>
           </Grid>
@@ -247,14 +245,14 @@ function DashboardBody({ data }: { data: PortfolioDashboard }) {
               Portfolio snapshot
             </Typography>
             <Stack spacing={1}>
-              <Row label="House types" value={String(p?.houseTypeCount ?? 0)} />
-              <Row label="Unclassified houses" value={String(p?.unclassifiedHouses ?? 0)} />
+              <Row label="House types" value={formatMaybeNumber(p?.houseTypeCount)} />
+              <Row label="Unclassified houses" value={formatMaybeNumber(p?.unclassifiedHouses)} />
               <Row
                 label="Paid / partial / unpaid charges"
-                value={`${data.status?.paid ?? 0} / ${data.status?.partial ?? 0} / ${data.status?.unpaid ?? 0}`}
+                value={`${formatMaybeNumber(data.status?.paid)} / ${formatMaybeNumber(data.status?.partial)} / ${formatMaybeNumber(data.status?.unpaid)}`}
               />
-              <Row label="Unmatched bank txns (period)" value={String(data.bank?.unmatched ?? 0)} />
-              <Row label="SMS failed" value={String(data.sms?.failed ?? 0)} />
+              <Row label="Unmatched bank txns (period)" value={formatMaybeNumber(data.bank?.unmatched)} />
+              <Row label="SMS failed" value={formatMaybeNumber(data.sms?.failed)} />
               <Stack direction="row" spacing={1} sx={{ pt: 1 }}>
                 <Chip size="small" component={Link} href="/reports" clickable label="Open reports" />
                 <Chip size="small" component={Link} href="/estates" clickable label="Estates" />

@@ -13,6 +13,9 @@ import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { paymentsApi } from '@/lib/api/payments';
 import { housesApi } from '@/lib/api/houses';
 import { formatCents } from '@/lib/formatting/currency';
+import { PaymentStatusChip, PaymentOriginChip } from '@/components/data-display/status-chip';
+import { useVisibleEstates } from '@/features/estates/use-visible-estates';
+import { estateKeys } from '@/lib/query/keys';
 import { dateFormat } from '@/lib/dates/period';
 import { useCachedQuery } from '@/hooks/use-cached-query';
 import { useSession } from '@/features/auth/session-context';
@@ -30,6 +33,7 @@ export default function PaymentsPage() {
   const [page, setPage] = useState(1);
   const [recordOpen, setRecordOpen] = useState(false);
   const [estateScope, setEstateScope] = useState<string | null>(null);
+  const { estates } = useVisibleEstates();
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -38,7 +42,7 @@ export default function PaymentsPage() {
 
   const { data, isLoading, error, freshness, cachedAt } = useCachedQuery(
     `${identity}:payments:list:${page}:${estateScope ?? 'all'}`,
-    ['payments', identity, page, estateScope],
+    [...estateKeys.payments(estateScope || undefined, { identity, page })],
     () => paymentsApi.list({ page, limit: 20, estateId: estateScope || undefined })
   );
 
@@ -46,27 +50,42 @@ export default function PaymentsPage() {
     { key: 'date', header: 'Date', render: (p) => dateFormat(p.paymentDate, 'DD MMM YYYY') },
     { key: 'reference', header: 'Reference', render: (p) => p.paymentReference ?? '—' },
     { key: 'period', header: 'Period', render: (p) => p.period },
-    { key: 'amount', header: 'Amount', align: 'right', render: (p) => formatCents(p.amountCents) },
+    { key: 'origin', header: 'Source', render: (p) => <PaymentOriginChip origin={p.origin} /> },
+    { key: 'status', header: 'Status', render: (p) => <PaymentStatusChip status={p.status} /> },
+    {
+      key: 'amount',
+      header: 'Amount',
+      align: 'right',
+      render: (p) => (
+        <span style={p.status === 'REVERSED' ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>{formatCents(p.amountCents)}</span>
+      ),
+    },
   ];
 
   return (
     <>
       <PageHeader
         title="Payments"
-        description="Confirmed payments (bank reconciliation and manual). Allocation is oldest-first on the server."
+        description="Payments recorded for your estates, including reversed ones. Only confirmed payments count as collected. Allocation is oldest-first on the server."
         actions={
           <Stack direction="row" spacing={1} alignItems="center">
-            {estateScope ? (
-              <Chip
-                size="small"
-                label="Estate-scoped"
-                onDelete={() => {
-                  setListScopeEstate(null);
-                  setEstateScope(null);
-                  setPage(1);
-                }}
-              />
-            ) : null}
+            <Select
+              size="small"
+              displayEmpty
+              value={estateScope ?? ''}
+              onChange={(e) => {
+                const v = e.target.value || null;
+                setListScopeEstate(v);
+                setEstateScope(v);
+                setPage(1);
+              }}
+              sx={{ minWidth: 180 }}
+            >
+              <MenuItem value="">All estates</MenuItem>
+              {estates?.map((e) => (
+                <MenuItem key={e._id} value={e._id}>{e.name}</MenuItem>
+              ))}
+            </Select>
             {canManage ? (
               <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setRecordOpen(true)}>
                 Record payment
@@ -88,11 +107,14 @@ export default function PaymentsPage() {
           isLoading={isLoading}
           error={error}
           emptyIcon={Receipt}
-          emptyTitle="No confirmed payments"
+          emptyTitle="No payments"
           emptyDescription="Record a manual payment or reconcile a bank transaction to a house."
           renderMobileCard={(p) => (
             <Card variant="outlined" sx={{ p: 2 }}>
-              <Typography fontWeight={600}>{formatCents(p.amountCents)}</Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography fontWeight={600} sx={p.status === 'REVERSED' ? { textDecoration: 'line-through', color: 'text.secondary' } : undefined}>{formatCents(p.amountCents)}</Typography>
+                <PaymentStatusChip status={p.status} />
+              </Stack>
               <Typography variant="body2" color="text.secondary">
                 {p.paymentReference ?? 'No reference'} · {dateFormat(p.paymentDate, 'DD MMM YYYY')}
               </Typography>
@@ -111,7 +133,7 @@ export default function PaymentsPage() {
           onClose={() => setRecordOpen(false)}
           onSaved={() => {
             setRecordOpen(false);
-            queryClient.invalidateQueries({ queryKey: ['payments'] });
+            queryClient.invalidateQueries({ queryKey: estateKeys.paymentsFamily() });
           }}
         />
       )}
@@ -131,8 +153,8 @@ function RecordPaymentDialog({
   const connectivity = useConnectivity();
   const canReach = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
   const { data: housesPage } = useQuery({
-    queryKey: ['houses', 'for-payment'],
-    queryFn: () => housesApi.list({ limit: 500 }),
+    queryKey: estateKeys.houses(undefined, { purpose: 'payment-picker', status: 'occupied' }),
+    queryFn: () => housesApi.list({ status: 'occupied', limit: 100 }),
   });
   const [houseId, setHouseId] = useState('');
   const [amountKes, setAmountKes] = useState('');
@@ -190,6 +212,9 @@ function RecordPaymentDialog({
             onChange={(e) => setReference(e.target.value)}
             helperText="Same house + reference + amount will not double-post"
           />
+          {housesPage && housesPage.pagination.total > housesPage.items.length ? (
+            <Alert severity="info">Showing the first {housesPage.items.length} of {housesPage.pagination.total} occupied houses. Use the house workspace to record a payment for a house not listed.</Alert>
+          ) : null}
           <Typography variant="caption" color="text.secondary">
             Server allocates oldest outstanding RentCharge first.
           </Typography>

@@ -37,7 +37,7 @@ import { ErrorState } from '@/components/feedback/error-state';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { reportsApi, type ManagementReport } from '@/lib/api/reports';
 import { usePeriod } from '@/features/dashboard/period-context';
-import { formatCents, formatNumber } from '@/lib/formatting/currency';
+import { formatCents, formatNumber, formatMaybeNumber, formatMaybeCents } from '@/lib/formatting/currency';
 import { useCachedQuery } from '@/hooks/use-cached-query';
 import { useSession } from '@/features/auth/session-context';
 import { identityKeyFromUser } from '@/lib/session/local-session-marker';
@@ -71,13 +71,19 @@ export default function ReportsPage() {
     [data?.arrears, estateScope]
   );
 
+  // Billed-vs-paid figures come from the backend as-is. A missing figure stays missing.
   const bvp = data?.billedVsPaid;
   const total = bvp?.total;
-  const billed = Number(total?.billedCents ?? 0);
-  const paid = Number(total?.paidCents ?? 0);
-  const outstanding = Number(total?.balanceCents ?? 0);
-  const prevArrears = Number(bvp?.previousArrearsCents ?? 0);
-  const collectionRate = billed > 0 ? Math.round((paid / billed) * 1000) / 10 : null;
+  const billed = total?.billedCents;
+  const paid = total?.paidCents;
+  const outstanding = total?.balanceCents;
+  const prevArrears = bvp?.previousArrearsCents;
+  const statusSlices = [
+    { name: 'Paid', value: data?.status?.paid, color: STATUS_COLORS.paid },
+    { name: 'Partial', value: data?.status?.partial, color: STATUS_COLORS.partial },
+    { name: 'Unpaid', value: data?.status?.unpaid, color: STATUS_COLORS.unpaid },
+  ].flatMap((x) => (typeof x.value === 'number' ? [{ name: x.name, value: x.value, color: x.color }] : []));
+  const collectionRate = typeof data?.rent?.collectionRatePercent === 'number' ? data.rent.collectionRatePercent : null;
 
   return (
     <>
@@ -89,7 +95,7 @@ export default function ReportsPage() {
             {estateScope ? (
               <Chip
                 size="small"
-                label="Estate-scoped"
+                label="Arrears list filtered to one estate"
                 onDelete={() => {
                   setListScopeEstate(null);
                   setEstateScope(null);
@@ -112,8 +118,8 @@ export default function ReportsPage() {
       {data ? (
         <>
           <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Kpi label="Estates" value={formatNumber(data.portfolio?.estateCount ?? 0)} />
-            <Kpi label="Houses" value={formatNumber(data.portfolio?.houseCount ?? 0)} />
+            <Kpi label="Estates" value={formatMaybeNumber(data.portfolio?.estateCount)} />
+            <Kpi label="Houses" value={formatMaybeNumber(data.portfolio?.houseCount)} />
             <Kpi
               label="Occupancy"
               value={
@@ -122,13 +128,13 @@ export default function ReportsPage() {
                   : '—'
               }
             />
-            <Kpi label="Tenants" value={formatNumber(data.portfolio?.tenantCount ?? 0)} />
-            <Kpi label="Billed" value={formatCents(billed || data.rent?.expectedCents || 0)} />
-            <Kpi label="Collected" value={formatCents(paid || data.rent?.collectedCents || 0)} />
-            <Kpi label="Outstanding" value={formatCents(outstanding || data.rent?.outstandingCents || 0)} />
-            <Kpi label="Collection rate" value={collectionRate != null ? `${collectionRate}%` : '—'} />
-            <Kpi label="Prior arrears" value={formatCents(prevArrears)} />
-            <Kpi label="Unmatched bank" value={formatNumber(data.bank?.unmatchedAllTime ?? data.bank?.unmatched ?? 0)} />
+            <Kpi label="Tenants" value={formatMaybeNumber(data.portfolio?.tenantCount)} />
+            <Kpi label="Billed (period charges)" value={formatMaybeCents(billed)} />
+            <Kpi label="Collected (period charges)" value={formatMaybeCents(paid)} />
+            <Kpi label="Open charges (period)" value={formatMaybeCents(outstanding)} />
+            <Kpi label="Collection rate" value={collectionRate != null ? `${collectionRate}%` : 'Not available'} />
+            <Kpi label="Charges from earlier periods (open)" value={formatMaybeCents(prevArrears)} />
+            <Kpi label="Unmatched bank (all time)" value={formatMaybeNumber(data.bank?.unmatchedAllTime)} />
           </Grid>
 
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable">
@@ -146,22 +152,19 @@ export default function ReportsPage() {
                     <Typography variant="subtitle1" sx={{ mb: 1 }}>
                       Charge status — {period.label}
                     </Typography>
+                    {statusSlices.length === 0 ? <Typography variant="body2" color="text.secondary">Charge status counts are not available.</Typography> : (
                     <Box sx={{ height: 260 }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
-                            data={[
-                              { name: 'Paid', value: data.status?.paid ?? 0, color: STATUS_COLORS.paid },
-                              { name: 'Partial', value: data.status?.partial ?? 0, color: STATUS_COLORS.partial },
-                              { name: 'Unpaid', value: data.status?.unpaid ?? 0, color: STATUS_COLORS.unpaid },
-                            ]}
+                            data={statusSlices}
                             dataKey="value"
                             nameKey="name"
                             outerRadius={90}
                             label
                           >
-                            {[STATUS_COLORS.paid, STATUS_COLORS.partial, STATUS_COLORS.unpaid].map((c, i) => (
-                              <Cell key={i} fill={c} />
+                            {statusSlices.map((slice) => (
+                              <Cell key={slice.name} fill={slice.color} />
                             ))}
                           </Pie>
                           <Tooltip />
@@ -169,6 +172,7 @@ export default function ReportsPage() {
                         </PieChart>
                       </ResponsiveContainer>
                     </Box>
+                    )}
                   </CardContent>
                 </Card>
               </Grid>
@@ -256,7 +260,7 @@ export default function ReportsPage() {
                   Open charge balances (RentCharge) — {arrearsRows.length} rows
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                  Charge-level outstanding. Tenant account balance remains Ledger-authoritative on tenant workspace.
+                  Charge-level open balances from rent charge records. They are not ledger-authoritative tenant arrears, do not net tenant credit, and may include charges from earlier tenancies. Open a tenant workspace for the tenant&apos;s own figures.
                 </Typography>
                 <Box sx={{ overflowX: 'auto' }}>
                   <Table size="small">
@@ -279,9 +283,9 @@ export default function ReportsPage() {
                           <TableCell>{row.house || '—'}</TableCell>
                           <TableCell>{row.period}</TableCell>
                           <TableCell>{row.chargeType || 'RENT'}</TableCell>
-                          <TableCell align="right">{formatCents(row.dueCents)}</TableCell>
-                          <TableCell align="right">{formatCents(row.paidCents)}</TableCell>
-                          <TableCell align="right">{formatCents(row.balanceCents)}</TableCell>
+                          <TableCell align="right">{formatMaybeCents(row.dueCents)}</TableCell>
+                          <TableCell align="right">{formatMaybeCents(row.paidCents)}</TableCell>
+                          <TableCell align="right">{formatMaybeCents(row.balanceCents)}</TableCell>
                           <TableCell>
                             <Chip size="small" label={row.status} variant="outlined" />
                           </TableCell>
@@ -327,7 +331,7 @@ export default function ReportsPage() {
                           <TableCell align="right">{e.houses}</TableCell>
                           <TableCell align="right">{e.occupied}</TableCell>
                           <TableCell align="right">{e.vacant}</TableCell>
-                          <TableCell align="right">{e.tenants ?? 0}</TableCell>
+                          <TableCell align="right">{formatMaybeNumber(e.tenants)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -372,11 +376,11 @@ export default function ReportsPage() {
                     Banking — period {period.label}
                   </Typography>
                   <Stack spacing={1}>
-                    <Row label="Credits" value={formatCents(data.bank?.creditsCents ?? 0)} />
-                    <Row label="Debits" value={formatCents(data.bank?.debitsCents ?? 0)} />
-                    <Row label="Matched (period)" value={String(data.bank?.matched ?? 0)} />
-                    <Row label="Unmatched (period)" value={String(data.bank?.unmatched ?? 0)} />
-                    <Row label="Unmatched (all time)" value={String(data.bank?.unmatchedAllTime ?? 0)} />
+                    <Row label="Credits" value={formatMaybeCents(data.bank?.creditsCents)} />
+                    <Row label="Debits" value={formatMaybeCents(data.bank?.debitsCents)} />
+                    <Row label="Matched (period)" value={formatMaybeNumber(data.bank?.matched)} />
+                    <Row label="Unmatched (period)" value={formatMaybeNumber(data.bank?.unmatched)} />
+                    <Row label="Unmatched (all time)" value={formatMaybeNumber(data.bank?.unmatchedAllTime)} />
                   </Stack>
                 </Card>
               </Grid>
@@ -386,10 +390,10 @@ export default function ReportsPage() {
                     SMS activity
                   </Typography>
                   <Stack spacing={1}>
-                    <Row label="Sent" value={String(data.sms?.sent ?? 0)} />
-                    <Row label="Failed" value={String(data.sms?.failed ?? 0)} />
-                    <Row label="Pending / queued" value={String(data.sms?.pending ?? 0)} />
-                    <Row label="Unknown" value={String(data.sms?.unknown ?? 0)} />
+                    <Row label="Sent" value={formatMaybeNumber(data.sms?.sent)} />
+                    <Row label="Failed" value={formatMaybeNumber(data.sms?.failed)} />
+                    <Row label="Pending / queued" value={formatMaybeNumber(data.sms?.pending)} />
+                    <Row label="Unknown" value={formatMaybeNumber(data.sms?.unknown)} />
                   </Stack>
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
                     Counts reflect stored message records, not fabricated delivery rates.

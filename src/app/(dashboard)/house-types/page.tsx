@@ -226,8 +226,8 @@ function HouseTypeDialog({
     if (others.length === 0) return [{ label: '', amountKes: '', enabled: false }];
     return others.map((o) => ({
       label: o.description || '',
-      amountKes: String((o.amountCents ?? 0) / 100),
-      enabled: (o.amountCents ?? 0) > 0,
+      amountKes: typeof o.amountCents === 'number' ? String(o.amountCents / 100) : '',
+      enabled: typeof o.amountCents === 'number' && o.amountCents > 0,
     }));
   });
   const [formError, setFormError] = useState<string | null>(null);

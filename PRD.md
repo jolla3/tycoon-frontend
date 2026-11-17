@@ -435,3 +435,8 @@ POST /api/v1/subscription/upgrade stays mounted but always returns 403 FORBIDDEN
 - [ ] Client Banking, Transactions and M-PESA screens handle PRODUCT_NOT_ENTITLED.
 - [ ] Customer self-service upgrade is removed.
 - [ ] Verification is performed against the corresponding backend branch and recorded honestly.
+
+
+## Financial-correctness audit addendum
+
+Unknown, null and unverified financial values render as "Not available"; verified zeros render as zeros; no aggregate stands in for another. Dashboard, reports, payments, estate/house/tenant workspaces follow this rule (see docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md section 18). Status: IMPLEMENTED. Unresolved BLOCKED BY BACKEND item: `GET /transactions` and `GET /transactions/unmatched` return raw BankTransaction documents including `processingClaimToken` and `rawPayload` (verified: no projection in `transaction.service.js`); a safe DTO is required before bank transaction browsing can be called secure.

@@ -3,7 +3,7 @@
 import { Grid, Card, CardContent, Typography, Box, Stack } from '@mui/material';
 import { reportsApi } from '@/lib/api/reports';
 import { usePeriod } from '@/features/dashboard/period-context';
-import { formatCents, formatNumber } from '@/lib/formatting/currency';
+import { formatMaybeCents, formatMaybeNumber } from '@/lib/formatting/currency';
 import { CardSkeleton } from '@/components/feedback/card-skeleton';
 import { ErrorState } from '@/components/feedback/error-state';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
@@ -40,15 +40,21 @@ export function RentStatusSummary() {
     );
   }
 
-  const rent = data.rent ?? { expectedCents: 0, collectedCents: 0, outstandingCents: 0 };
-  const status = data.status ?? { paid: 0, partial: 0, unpaid: 0 };
-  const houses = data.houses ?? { total: 0, occupied: 0, vacant: 0 };
+  // No fabricated defaults: when the API omits a section, each figure renders as
+  // "Not available". A genuine zero from the backend still renders as a zero amount.
+  const rent = data.rent;
+  const status = data.status;
+  const houses = data.houses;
+  const paidOfTotal =
+    typeof status?.paid === 'number' && typeof houses?.total === 'number'
+      ? `${formatMaybeNumber(status.paid)} / ${formatMaybeNumber(houses.total)} paid`
+      : 'Not available';
 
   const cards = [
-    { label: 'Expected', value: formatCents(rent.expectedCents), tone: 'text.primary' },
-    { label: 'Collected', value: formatCents(rent.collectedCents), tone: 'success.main' },
-    { label: 'Outstanding', value: formatCents(rent.outstandingCents), tone: 'error.main' },
-    { label: 'Households', value: `${formatNumber(status.paid)} / ${formatNumber(houses.total)} paid`, tone: 'text.primary' },
+    { label: 'Billed (period charges)', value: formatMaybeCents(rent?.expectedCents), tone: 'text.primary' },
+    { label: 'Collected', value: formatMaybeCents(rent?.collectedCents), tone: 'success.main' },
+    { label: 'Open charges', value: formatMaybeCents(rent?.outstandingCents), tone: 'error.main' },
+    { label: 'Charges paid / houses', value: paidOfTotal, tone: 'text.primary' },
   ];
 
   return (
