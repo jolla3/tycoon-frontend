@@ -1,330 +1,413 @@
 'use client';
 
+// Banking: connection lifecycle (create / reauthorize / disconnect) and accounts
+// registered under an ACTIVE connection. Requires the BANKING product; a 403
+// PRODUCT_NOT_ENTITLED is a distinct state from "not configured".
+//
+// Credential material is typed into local state, sent once, and cleared on
+// success, error-dismiss and close. It is never put in React Query state,
+// IndexedDB, URLs, logs or telemetry. Account numbers are never displayed in
+// full; the backend only returns a masked hint.
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Card,
-  Grid,
-  Typography,
-  Stack,
-  Button,
-  Chip,
-  Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  Select,
-  MenuItem,
-  Box,
+  Card, Grid, Typography, Stack, Button, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
+  TextField, MenuItem, Box, FormControlLabel, Checkbox,
 } from '@mui/material';
 import { Landmark, Plus, RefreshCw } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { CardSkeleton } from '@/components/feedback/card-skeleton';
 import { ErrorState } from '@/components/feedback/error-state';
 import { EmptyState } from '@/components/feedback/empty-state';
+import { ProductEntitlementBlocked, isProductNotEntitled } from '@/components/feedback/product-entitlement-blocked';
 import { ConnectionStatusChip } from '@/components/data-display/status-chip';
-import { bankingApi, type ConnectBankAccountInput } from '@/lib/api/banking';
+import { bankingApi, type RegisterBankAccountInput } from '@/lib/api/banking';
+import { bankConnectionsApi, type BankConnection, type CoopCredentialMaterial } from '@/lib/api/bank-connections';
 import { dateFormat } from '@/lib/dates/period';
 import { useVisibleEstates } from '@/features/estates/use-visible-estates';
 import { useSession } from '@/features/auth/session-context';
 import { permissions } from '@/lib/permissions/permissions';
 import { ApiError } from '@/lib/api/client';
 import { useConnectivity } from '@/lib/sync/connectivity';
-import { useCachedQuery } from '@/hooks/use-cached-query';
-import { identityKeyFromUser } from '@/lib/session/local-session-marker';
-import { FreshnessBadge } from '@/components/data-display/freshness-badge';
+import { bankingKeys, estateKeys } from '@/lib/query/keys';
 import type { BankAccount } from '@/types/api';
 
-// Sensitive account fields are never rendered — accountName + masked placeholder only.
+const CONNECTION_STATUS: Record<BankConnection['status'], { label: string; color: 'success' | 'warning' | 'error' | 'default' }> = {
+  pending: { label: 'Pending', color: 'warning' },
+  active: { label: 'Active', color: 'success' },
+  reauth_required: { label: 'Re-authorization required', color: 'warning' },
+  disconnected: { label: 'Disconnected', color: 'default' },
+  failed: { label: 'Failed', color: 'error' },
+};
+
+function useCanReach() {
+  const c = useConnectivity();
+  return c.state === 'online' || c.state === 'syncing' || c.state === 'sync-error';
+}
 
 export default function BankingPage() {
   const { user } = useSession();
-  const identity = user ? identityKeyFromUser(user) : 'anon';
   const { estates } = useVisibleEstates();
-  const [connectOpen, setConnectOpen] = useState(false);
   const canManage = user ? permissions.canManageBanking(user.role) : false;
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
 
-  const { data, isLoading, error, freshness, cachedAt } = useCachedQuery(
-    `${identity}:bank-accounts`,
-    ['bank-accounts', identity],
-    () => bankingApi.list()
-  );
+  // Connections hold no secrets (authMeta is evidence only) but are read live, not cached offline.
+  const connections = useQuery({ queryKey: bankingKeys.connections(), queryFn: () => bankConnectionsApi.list(), enabled: !!user });
+  const accounts = useQuery({ queryKey: bankingKeys.accounts(), queryFn: () => bankingApi.list(), enabled: !!user });
+
+  const blocked = isProductNotEntitled(connections.error) ? connections.error : isProductNotEntitled(accounts.error) ? accounts.error : null;
+  if (blocked) {
+    return (
+      <>
+        <PageHeader title="Banking" description="Bank connections and accounts" />
+        <ProductEntitlementBlocked error={blocked} fallbackProduct="BANKING" />
+      </>
+    );
+  }
+
+  const activeConnections = (connections.data ?? []).filter((c) => c.status === 'active');
 
   return (
     <>
       <PageHeader
         title="Banking"
-        description="Connected bank accounts and synchronization status"
+        description="Bank connections, registered accounts and synchronization"
         actions={
-          canManage && (
-            <Button variant="contained" startIcon={<Plus size={16} />} onClick={() => setConnectOpen(true)}>
-              Connect Account
-            </Button>
-          )
+          canManage ? (
+            <Stack direction="row" spacing={1}>
+              <Button variant="outlined" startIcon={<Plus size={16} />} onClick={() => setConnectOpen(true)}>New connection</Button>
+              <Button variant="contained" startIcon={<Plus size={16} />} disabled={activeConnections.length === 0} onClick={() => setRegisterOpen(true)}>
+                Register account
+              </Button>
+            </Stack>
+          ) : null
         }
       />
 
-      {freshness !== 'live' && (
-        <Box sx={{ mb: 1.5 }}>
-          <FreshnessBadge freshness={freshness} cachedAt={cachedAt} />
-        </Box>
-      )}
-
-      {error && !data && <ErrorState error={error} />}
-      {isLoading && (
-        <Grid container spacing={2}>
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Grid item xs={12} md={6} key={i}>
-              <CardSkeleton lines={3} />
-            </Grid>
-          ))}
-        </Grid>
-      )}
-
-      {!isLoading && !error && (!data || data.length === 0) && (
-        <Card sx={{ p: 2 }}>
-          <EmptyState icon={Landmark} title="No bank accounts connected" description="Connect a bank account to start receiving and reconciling rent payments automatically." />
+      <Typography variant="h6" sx={{ mb: 1 }}>Connections</Typography>
+      {connections.isLoading ? <CardSkeleton lines={2} /> : null}
+      {connections.error && !connections.data ? <ErrorState error={connections.error} /> : null}
+      {connections.data && connections.data.length === 0 ? (
+        <Card sx={{ p: 2, mb: 3 }}>
+          <EmptyState icon={Landmark} title="No bank connection yet" description="Create a connection with your Co-operative Bank credentials, then register accounts under it." />
         </Card>
-      )}
-
-      <Grid container spacing={2}>
-        {data?.map((account) => (
-          <Grid item xs={12} md={6} key={account.id ?? account._id}>
-            <BankAccountCard account={account} estateName={estates?.find((e) => e._id === account.estateId)?.name} canManage={canManage} />
+      ) : null}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {connections.data?.map((c) => (
+          <Grid item xs={12} md={6} key={c.id}>
+            <ConnectionCard connection={c} canManage={canManage} />
           </Grid>
         ))}
       </Grid>
 
-      {canManage && (
-        <ConnectAccountDialog open={connectOpen} onClose={() => setConnectOpen(false)} estates={estates ?? []} />
-      )}
+      <Typography variant="h6" sx={{ mb: 1 }}>Accounts</Typography>
+      {accounts.isLoading ? <CardSkeleton lines={3} /> : null}
+      {accounts.error && !accounts.data ? <ErrorState error={accounts.error} /> : null}
+      {accounts.data && accounts.data.length === 0 ? (
+        <Card sx={{ p: 2 }}>
+          <EmptyState icon={Landmark} title="No bank accounts registered" description="Register an account under an active connection to start receiving and reconciling rent payments." />
+        </Card>
+      ) : null}
+      <Grid container spacing={2}>
+        {accounts.data?.map((a) => (
+          <Grid item xs={12} md={6} key={a.id}>
+            <BankAccountCard account={a} estateName={estates?.find((e) => e._id === a.estateId)?.name} canManage={canManage} />
+          </Grid>
+        ))}
+      </Grid>
+
+      {canManage && connectOpen ? <CreateConnectionDialog onClose={() => setConnectOpen(false)} /> : null}
+      {canManage && registerOpen ? <RegisterAccountDialog onClose={() => setRegisterOpen(false)} estates={estates ?? []} connections={activeConnections} /> : null}
     </>
   );
 }
 
-function BankAccountCard({ account, estateName, canManage }: { account: BankAccount; estateName?: string; canManage: boolean }) {
-  const queryClient = useQueryClient();
-  const connectivity = useConnectivity();
-  const canReachServer = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [syncResult, setSyncResult] = useState<string | null>(null);
-  const [statementOpen, setStatementOpen] = useState(false);
+/* ---------------------------------- Connections ---------------------------------- */
 
-  const sync = useMutation({
-    mutationFn: () => bankingApi.sync(account.id ?? account._id!),
-    onSuccess: (result) => {
-      setSyncError(null);
-      setSyncResult(`Synced — ${result.stored} new transaction(s), ${result.reconciled} reconciled.`);
-      queryClient.invalidateQueries({ queryKey: ['bank-accounts'] });
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-    },
-    onError: (err) => {
-      setSyncResult(null);
-      setSyncError(err instanceof ApiError ? err.message : 'Bank synchronization failed. Your existing transaction data has not been changed.');
-    },
+function ConnectionCard({ connection, canManage }: { connection: BankConnection; canManage: boolean }) {
+  const qc = useQueryClient();
+  const canReach = useCanReach();
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const meta = CONNECTION_STATUS[connection.status] ?? { label: connection.status, color: 'default' as const };
+
+  const disconnect = useMutation({
+    mutationFn: () => bankConnectionsApi.disconnect(connection.id),
+    onSuccess: () => { setError(null); qc.invalidateQueries({ queryKey: bankingKeys.connections() }); qc.invalidateQueries({ queryKey: bankingKeys.accounts() }); },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Unable to disconnect.'),
   });
 
   return (
-    <Card
-      sx={{
-        p: 2.5,
-        position: 'relative',
-        overflow: 'hidden',
-        borderRadius: 3,
-        border: '1px solid rgba(0, 180, 216, 0.35)',
-        background: 'linear-gradient(135deg, rgba(2, 62, 138, 0.92) 0%, rgba(0, 150, 199, 0.88) 48%, rgba(0, 180, 216, 0.85) 100%)',
-        color: '#fff',
-        boxShadow: '0 12px 40px rgba(2, 62, 138, 0.18)',
-      }}
-    >
+    <Card sx={{ p: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
         <Box>
-          <Typography variant="overline" sx={{ opacity: 0.85 }}>{account.provider}</Typography>
-          <Typography variant="h6" fontWeight={700}>{account.accountName}</Typography>
-          <Typography variant="body2" sx={{ opacity: 0.9 }}>
-            {estateName ?? 'Estate'} · {account.accountNumberMasked || '•••• ••••'}
-          </Typography>
+          <Typography variant="overline" color="text.secondary">{connection.provider}</Typography>
+          <Typography fontWeight={600}>{connection.displayName || 'Co-operative Bank connection'}</Typography>
         </Box>
-        <ConnectionStatusChip status={account.connectionStatus} />
+        <Chip size="small" label={meta.label} color={meta.color} variant="outlined" />
       </Stack>
-
-      <Stack direction="row" spacing={3} sx={{ mt: 2 }}>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Account
-          </Typography>
-          <Typography variant="body2" sx={{ fontFamily: '"IBM Plex Mono", monospace' }}>
-            •••• •••• ••••
-          </Typography>
-        </Box>
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            Last Sync
-          </Typography>
-          <Typography variant="body2">{account.lastSyncedAt ? dateFormat(account.lastSyncedAt, 'DD MMM, HH:mm') : 'Never synchronized'}</Typography>
-        </Box>
-      </Stack>
-
-      {canManage && (
-        <Button
-          size="small"
-          startIcon={<RefreshCw size={14} />}
-          sx={{ mt: 2, mr: 1 }}
-          disabled={sync.isPending || !canReachServer}
-          onClick={() => {
-            setSyncResult(null);
-            setSyncError(null);
-            sync.mutate();
-          }}
-        >
-          {!canReachServer ? "You're offline" : sync.isPending ? 'Syncing…' : 'Sync now'}
-        </Button>
-      )}
-      {canManage && (
-        <Button size="small" variant="text" sx={{ mt: 2 }} onClick={() => setStatementOpen(true)}>
-          View statement
-        </Button>
-      )}
-
-      {statementOpen && (
-        <StatementDialog
-          open={statementOpen}
-          onClose={() => setStatementOpen(false)}
-          accountId={account.id ?? account._id!}
-          canReachServer={canReachServer}
-        />
-      )}
-
-      {!canReachServer && canManage && (
-        <Alert severity="info" sx={{ mt: 1.5 }}>
-          You&apos;re offline. Bank synchronization requires a server connection.
-        </Alert>
-      )}
-      {syncResult && (
-        <Alert severity="success" sx={{ mt: 1.5 }}>
-          {syncResult}
-        </Alert>
-      )}
-      {syncError && (
-        <Alert severity="error" sx={{ mt: 1.5 }}>
-          {syncError}
-        </Alert>
-      )}
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+        Last authorized: {connection.authMeta.lastAuthAt ? dateFormat(connection.authMeta.lastAuthAt, 'DD MMM YYYY, HH:mm') : 'Never'}
+        {connection.authMeta.tokenExpiresAt ? ` · token expires ${dateFormat(connection.authMeta.tokenExpiresAt, 'DD MMM, HH:mm')}` : ''}
+      </Typography>
+      {connection.authMeta.lastAuthError ? <Alert severity="warning" sx={{ mt: 1 }}>Last authorization error: {connection.authMeta.lastAuthError}</Alert> : null}
+      {connection.status === 'reauth_required' ? (
+        <Alert severity="warning" sx={{ mt: 1 }}>The bank rejected the stored credentials. Re-authorize to resume syncing. Sync and statement imports are blocked until then.</Alert>
+      ) : null}
+      {error ? <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert> : null}
+      {canManage && connection.status !== 'disconnected' ? (
+        <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+          <Button size="small" variant="outlined" disabled={!canReach} onClick={() => setReauthOpen(true)}>Re-authorize</Button>
+          <Button
+            size="small"
+            color="warning"
+            disabled={!canReach || disconnect.isPending}
+            onClick={() => {
+              if (window.confirm('Disconnect this bank connection? Accounts under it stop syncing until a new connection is registered.')) disconnect.mutate();
+            }}
+          >
+            {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
+          </Button>
+        </Stack>
+      ) : null}
+      {reauthOpen ? <CredentialDialog title="Re-authorize connection" submitLabel="Re-authorize" onClose={() => setReauthOpen(false)} submit={(m) => bankConnectionsApi.reauthorize(connection.id, m)} /> : null}
     </Card>
   );
 }
 
-function StatementDialog({ open, onClose, accountId, canReachServer }: { open: boolean; onClose: () => void; accountId: string; canReachServer: boolean }) {
-  // Section 5 of this pass: bank.controller.js#statement (GET
-  // /bank/accounts/:id/statement?startDate&endDate) only returns
-  // { stored, reconciled } counts — it does NOT return the actual list of
-  // transactions. We show exactly that, honestly, and point the user to
-  // the Transactions screen to see the resulting records, rather than
-  // fabricating a transaction list this endpoint doesn't provide.
-  const queryClient = useQueryClient();
-  const today = new Date().toISOString().slice(0, 10);
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
-  const [result, setResult] = useState<{ stored: number; reconciled: number } | null>(null);
+const EMPTY_CREDS: CoopCredentialMaterial = { clientId: '', clientSecret: '', username: '', password: '', scope: '' };
+
+/** Shared credential form. Secrets live only in this component's state and are wiped on every exit path. */
+function CredentialDialog({
+  title, submitLabel, onClose, submit, withDisplayName = false,
+}: {
+  title: string;
+  submitLabel: string;
+  onClose: () => void;
+  submit: (material: CoopCredentialMaterial, displayName?: string) => Promise<unknown>;
+  withDisplayName?: boolean;
+}) {
+  const qc = useQueryClient();
+  const canReach = useCanReach();
+  const [creds, setCreds] = useState<CoopCredentialMaterial>(EMPTY_CREDS);
+  const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const wipe = () => { setCreds(EMPTY_CREDS); setDisplayName(''); };
+  const close = () => { wipe(); onClose(); };
+
   const mutation = useMutation({
-    mutationFn: () => bankingApi.statement(accountId, startDate, endDate),
-    onSuccess: (res) => {
-      setResult(res);
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['reports'] });
+    mutationFn: () => submit({ ...creds, scope: creds.scope?.trim() || undefined }, displayName.trim() || undefined),
+    onSuccess: () => {
+      wipe();
+      qc.invalidateQueries({ queryKey: bankingKeys.connections() });
+      qc.invalidateQueries({ queryKey: bankingKeys.accounts() });
+      onClose();
     },
-    onError: (err) => setError(err instanceof ApiError ? err.message : 'Unable to retrieve the statement.'),
+    onError: (e) => {
+      // Keep what the user typed so they can correct it, but never echo it back.
+      setError(e instanceof ApiError ? e.message : 'The bank connection could not be verified.');
+    },
   });
 
+  const set = (k: keyof CoopCredentialMaterial) => (e: React.ChangeEvent<HTMLInputElement>) => setCreds((c) => ({ ...c, [k]: e.target.value }));
+  const valid = creds.clientId && creds.clientSecret && creds.username && creds.password;
+
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle>Retrieve Bank Statement</DialogTitle>
+    <Dialog open onClose={close} fullWidth maxWidth="xs">
+      <DialogTitle>{title}</DialogTitle>
       <DialogContent>
-        <Stack spacing={2} sx={{ mt: 1 }}>
-          {!canReachServer && <Alert severity="info">You&apos;re offline. This action requires a server connection.</Alert>}
-          {error && <Alert severity="error">{error}</Alert>}
-          {result && (
-            <Alert severity="success">
-              Imported {result.stored} transaction(s), {result.reconciled} automatically reconciled. Unreconciled ones will
-              appear under Transactions &gt; Unmatched.
-            </Alert>
-          )}
-          <TextField label="Start date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} InputLabelProps={{ shrink: true }} />
-          <TextField label="End date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+        <Stack spacing={2} sx={{ mt: 1 }} component="form" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
+          {!canReach ? <Alert severity="info">You&apos;re offline. This action requires a server connection.</Alert> : null}
+          {error ? <Alert severity="error">{error}</Alert> : null}
+          <Alert severity="info">Credentials are sent securely to the server and stored encrypted. They cannot be viewed again.</Alert>
+          {withDisplayName ? <TextField label="Display name (optional)" value={displayName} onChange={(e) => setDisplayName(e.target.value)} /> : null}
+          <TextField label="Client ID" value={creds.clientId} onChange={set('clientId')} required autoComplete="off" />
+          <TextField label="Client secret" type="password" value={creds.clientSecret} onChange={set('clientSecret')} required autoComplete="new-password" />
+          <TextField label="Username" value={creds.username} onChange={set('username')} required autoComplete="off" />
+          <TextField label="Password" type="password" value={creds.password} onChange={set('password')} required autoComplete="new-password" />
+          <TextField label="Scope (optional)" value={creds.scope ?? ''} onChange={set('scope')} autoComplete="off" />
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-        <Button
-          variant="contained"
-          disabled={!startDate || !endDate || mutation.isPending || !canReachServer}
-          onClick={() => {
-            setError(null);
-            mutation.mutate();
-          }}
-        >
-          {!canReachServer ? 'Offline' : mutation.isPending ? 'Retrieving…' : 'Retrieve'}
+        <Button onClick={close}>Cancel</Button>
+        <Button variant="contained" disabled={!valid || mutation.isPending || !canReach} onClick={() => { setError(null); mutation.mutate(); }}>
+          {mutation.isPending ? 'Verifying…' : submitLabel}
         </Button>
       </DialogActions>
     </Dialog>
   );
 }
 
-function ConnectAccountDialog({ open, onClose, estates }: { open: boolean; onClose: () => void; estates: { _id: string; name: string }[] }) {
-  const queryClient = useQueryClient();
-  const connectivity = useConnectivity();
-  const canReachServer = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
-  const [form, setForm] = useState<Partial<ConnectBankAccountInput>>({ provider: 'COOP' });
-  const [formError, setFormError] = useState<string | null>(null);
+function CreateConnectionDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <CredentialDialog
+      title="New bank connection"
+      submitLabel="Create connection"
+      withDisplayName
+      onClose={onClose}
+      submit={(material, displayName) => bankConnectionsApi.create({ provider: 'COOP', displayName, credentialMaterial: material })}
+    />
+  );
+}
 
-  const mutation = useMutation({
-    mutationFn: () => bankingApi.connect(form as ConnectBankAccountInput),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bank-accounts'] });
-      setForm({ provider: 'COOP' });
-      onClose();
+/* ----------------------------------- Accounts ----------------------------------- */
+
+function BankAccountCard({ account, estateName, canManage }: { account: BankAccount; estateName?: string; canManage: boolean }) {
+  const qc = useQueryClient();
+  const canReach = useCanReach();
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [statementOpen, setStatementOpen] = useState(false);
+  const canSync = account.entitlements?.poll !== false;
+  const canStatement = account.entitlements?.statement !== false;
+
+  const sync = useMutation({
+    mutationFn: () => bankingApi.sync(account.id),
+    onSuccess: (r) => {
+      setSyncError(null);
+      setSyncResult(`Synced: ${r.stored} new transaction(s) stored, ${r.reconciled} reconciled. Check Transactions for anything left unmatched.`);
+      qc.invalidateQueries({ queryKey: bankingKeys.accounts() });
+      qc.invalidateQueries({ queryKey: estateKeys.transactionsFamily() });
     },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Unable to connect this account.'),
+    onError: (e) => {
+      setSyncResult(null);
+      setSyncError(e instanceof ApiError ? e.message : 'Bank synchronization failed. Existing transaction data has not been changed.');
+    },
   });
 
-  const valid = form.estateId && form.accountNumber && form.accountName;
+  return (
+    <Card sx={{ p: 2.5 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+        <Box>
+          <Typography variant="overline" color="text.secondary">{account.provider}</Typography>
+          <Typography variant="h6" fontWeight={700}>{account.accountName}</Typography>
+          <Typography variant="body2" color="text.secondary">{estateName ?? 'Estate'} · {account.accountNumberMasked || 'Number hidden'}</Typography>
+        </Box>
+        <Stack spacing={0.5} alignItems="flex-end">
+          <ConnectionStatusChip status={account.connectionStatus} />
+          <Chip size="small" variant="outlined" label={`Validation: ${account.validationStatus}`} />
+        </Stack>
+      </Stack>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
+        Last sync: {account.lastSyncedAt ? dateFormat(account.lastSyncedAt, 'DD MMM, HH:mm') : 'Never synchronized'}
+        {account.lastValidatedAt ? ` · validated ${dateFormat(account.lastValidatedAt, 'DD MMM, HH:mm')}` : ''}
+      </Typography>
+      {canManage ? (
+        <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+          <Button size="small" startIcon={<RefreshCw size={14} />} disabled={sync.isPending || !canReach || !canSync} onClick={() => { setSyncResult(null); setSyncError(null); sync.mutate(); }}>
+            {!canReach ? "You're offline" : sync.isPending ? 'Syncing…' : 'Sync now'}
+          </Button>
+          <Button size="small" disabled={!canStatement} onClick={() => setStatementOpen(true)}>Import statement</Button>
+        </Stack>
+      ) : null}
+      {syncResult ? <Alert severity="success" sx={{ mt: 1.5 }}>{syncResult}</Alert> : null}
+      {syncError ? <Alert severity="error" sx={{ mt: 1.5 }}>{syncError}</Alert> : null}
+      {statementOpen ? <StatementDialog accountId={account.id} onClose={() => setStatementOpen(false)} /> : null}
+    </Card>
+  );
+}
+
+function StatementDialog({ accountId, onClose }: { accountId: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const canReach = useCanReach();
+  const today = new Date().toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const [result, setResult] = useState<{ stored: number; reconciled: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // The endpoint returns counts only, never rows. Rows appear under Transactions.
+  const mutation = useMutation({
+    mutationFn: () => bankingApi.statement(accountId, startDate, endDate),
+    onSuccess: (r) => { setResult(r); qc.invalidateQueries({ queryKey: estateKeys.transactionsFamily() }); },
+    onError: (e) => setError(e instanceof ApiError ? e.message : 'Unable to import the statement.'),
+  });
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
-      <DialogTitle>Connect Bank Account</DialogTitle>
+    <Dialog open onClose={onClose} fullWidth maxWidth="xs">
+      <DialogTitle>Import bank statement</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          {!canReachServer && <Alert severity="info">You&apos;re offline. This action requires a server connection.</Alert>}
-          {formError && <Alert severity="error">{formError}</Alert>}
-          <Select displayEmpty value={form.estateId ?? ''} onChange={(e) => setForm((f) => ({ ...f, estateId: e.target.value }))}>
-            <MenuItem value="" disabled>
-              Select estate
-            </MenuItem>
-            {estates.map((e) => (
-              <MenuItem key={e._id} value={e._id}>
-                {e.name}
-              </MenuItem>
-            ))}
-          </Select>
-          {/* Only COOP is implemented server-side. Other enum values are placeholders. */}
-          <Select value={form.provider ?? 'COOP'} onChange={(e) => setForm((f) => ({ ...f, provider: e.target.value as ConnectBankAccountInput['provider'] }))}>
-            <MenuItem value="COOP">Co-operative Bank</MenuItem>
-          </Select>
-          <Typography variant="caption" color="text.secondary">
-            KCB, Equity, and NCBA are reserved in the API but not implemented yet.
-          </Typography>
-          <TextField label="Account number" value={form.accountNumber ?? ''} onChange={(e) => setForm((f) => ({ ...f, accountNumber: e.target.value }))} required />
-          <TextField label="Account name" value={form.accountName ?? ''} onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))} required />
+          {!canReach ? <Alert severity="info">You&apos;re offline. This action requires a server connection.</Alert> : null}
+          {error ? <Alert severity="error">{error}</Alert> : null}
+          {result ? <Alert severity="success">{result.stored} transaction(s) stored, {result.reconciled} reconciled. The rest appear under Transactions as unmatched or needing review.</Alert> : null}
+          <TextField label="Start date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+          <TextField label="End date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} InputLabelProps={{ shrink: true }} />
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" disabled={!valid || mutation.isPending || !canReachServer} onClick={() => { setFormError(null); mutation.mutate(); }}>
-          {!canReachServer ? "Offline" : mutation.isPending ? 'Connecting…' : 'Connect'}
+        <Button onClick={onClose}>Close</Button>
+        <Button variant="contained" disabled={!startDate || !endDate || mutation.isPending || !canReach} onClick={() => { setError(null); mutation.mutate(); }}>
+          {mutation.isPending ? 'Importing…' : 'Import'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function RegisterAccountDialog({ onClose, estates, connections }: { onClose: () => void; estates: { _id: string; name: string }[]; connections: BankConnection[] }) {
+  const qc = useQueryClient();
+  const canReach = useCanReach();
+  const [estateId, setEstateId] = useState('');
+  const [connectionId, setConnectionId] = useState(connections[0]?.id ?? '');
+  const [accountNumber, setAccountNumber] = useState('');
+  const [accountName, setAccountName] = useState('');
+  const [conflict, setConflict] = useState(false);
+  const [reassign, setReassign] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const input: RegisterBankAccountInput = { estateId, connectionId, provider: 'COOP', accountNumber: accountNumber.trim(), accountName: accountName.trim(), ...(reassign ? { allowEstateReassignment: true } : {}) };
+      return bankingApi.register(input);
+    },
+    onSuccess: () => {
+      setAccountNumber('');
+      qc.invalidateQueries({ queryKey: bankingKeys.accounts() });
+      onClose();
+    },
+    onError: (e) => {
+      if (e instanceof ApiError && e.status === 409) {
+        // The backend refuses silent moves. Offer an explicit, confirmed reassignment.
+        setConflict(true);
+        setError(e.message);
+      } else {
+        setError(e instanceof ApiError ? e.message : 'Unable to register this account.');
+      }
+    },
+  });
+
+  const valid = estateId && connectionId && accountNumber.trim() && accountName.trim() && (!conflict || reassign);
+
+  return (
+    <Dialog open onClose={() => { setAccountNumber(''); onClose(); }} fullWidth maxWidth="xs">
+      <DialogTitle>Register bank account</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {!canReach ? <Alert severity="info">You&apos;re offline. This action requires a server connection.</Alert> : null}
+          {error ? <Alert severity={conflict ? 'warning' : 'error'}>{error}</Alert> : null}
+          <TextField select label="Estate" value={estateId} onChange={(e) => setEstateId(e.target.value)} required>
+            {estates.map((e) => <MenuItem key={e._id} value={e._id}>{e.name}</MenuItem>)}
+          </TextField>
+          <TextField select label="Connection" value={connectionId} onChange={(e) => setConnectionId(e.target.value)} required>
+            {connections.map((c) => <MenuItem key={c.id} value={c.id}>{c.displayName || `Co-operative Bank (${c.id.slice(-6)})`}</MenuItem>)}
+          </TextField>
+          <TextField label="Account number" value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} required autoComplete="off" />
+          <TextField label="Account name" value={accountName} onChange={(e) => setAccountName(e.target.value)} required />
+          {conflict ? (
+            <FormControlLabel
+              control={<Checkbox checked={reassign} onChange={(e) => setReassign(e.target.checked)} />}
+              label="I confirm moving this already-registered account to the selected estate"
+            />
+          ) : null}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => { setAccountNumber(''); onClose(); }}>Cancel</Button>
+        <Button variant="contained" disabled={!valid || mutation.isPending || !canReach} onClick={() => { setError(null); mutation.mutate(); }}>
+          {mutation.isPending ? 'Registering…' : 'Register'}
         </Button>
       </DialogActions>
     </Dialog>

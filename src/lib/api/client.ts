@@ -20,18 +20,19 @@
 // surface as a confusing generic network error. Development may fall back
 // to localhost for convenience.
 function resolveApiBaseUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (configured) return configured;
   if (process.env.NODE_ENV !== 'production') return 'http://localhost:4000/api/v1';
-  throw new Error(
-    'NEXT_PUBLIC_API_BASE_URL is not set. This must be configured at build time for production — see .env.example.'
-  );
+
+  // Production defaults to the same-origin Next.js rewrite. This keeps
+  // session cookies and CSRF same-site and avoids requiring a public
+  // cross-origin backend URL in the browser bundle. next.config.js must
+  // have BACKEND_URL configured for this rewrite to reach the backend.
+  return '/api/v1';
 }
 
-// Resolved lazily (not at module top) so an accidental missing env var in
-// production surfaces as a normal caught ApiError the first time a request
-// is actually made — not as an uncaught crash during module import, before
-// any error boundary exists to catch it.
+// Resolve lazily so configuration and URL errors are surfaced as catchable
+// ApiErrors when a request is made, not as import-time application crashes.
 let cachedBaseUrl: string | null = null;
 function getApiBaseUrl(): string {
   if (cachedBaseUrl) return cachedBaseUrl;
@@ -94,7 +95,28 @@ type RequestOptions = {
   body?: unknown;
   query?: Record<string, QueryValue>;
   signal?: AbortSignal;
+  /**
+   * Typed extra headers. Only headers on the allowlist below may be set, so a
+   * caller cannot override Content-Type, Accept or X-CSRF-Token (CSRF stays
+   * owned by this module).
+   */
+  idempotencyKey?: string;
 };
+
+/**
+ * Generates an Idempotency-Key. Call this at the DELIBERATE user-action
+ * boundary (the moment the user commits to an action), keep the key for every
+ * retry of that same action, and generate a new one only for a new action.
+ * Never call it inside a mutationFn — a network retry would then silently
+ * mint a new key and defeat server-side duplicate protection.
+ */
+export function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  // Fallback for very old browsers: 128 bits from getRandomValues.
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 export function getApiHealthUrl(): string {
   const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -110,13 +132,35 @@ export function getApiHealthUrl(): string {
 }
 
 function buildUrl(path: string, query?: RequestOptions['query']): string {
-  const url = new URL(`${getApiBaseUrl()}${path}`);
+  const base = getApiBaseUrl().replace(/\/+$/, '');
+  const normalizedPath = path.startsWith('/') ? path : '/' + path;
+  const requestPath = base + normalizedPath;
+  const isAbsoluteBase = /^[a-z][a-z\d+.-]*:\/\//i.test(base);
+
+  // Browser requests using /api/v1 stay same-origin and pass through the
+  // Next.js rewrite. Server-side requests use the current Vercel deployment
+  // origin (or localhost during local development).
+  const applicationOrigin =
+    typeof window !== 'undefined'
+      ? window.location.origin
+      : (() => {
+          // VERCEL_URL is server-only. Do not evaluate it in the browser bundle.
+          const deploymentHost = process.env.VERCEL_URL?.replace(/^https?:\/\//, '');
+          return deploymentHost ? 'https://' + deploymentHost : 'http://localhost:3000';
+        })();
+
+  const url = new URL(requestPath, applicationOrigin);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
     }
   }
-  return url.toString();
+
+  // Keep relative URLs relative in the browser so the request uses this
+  // deployment's same-origin rewrite. Absolute API bases remain absolute.
+  return isAbsoluteBase || typeof window === 'undefined'
+    ? url.toString()
+    : url.pathname + url.search;
 }
 
 /** Shape every controller in the backend returns (apiResponse.js). */
@@ -128,10 +172,11 @@ interface BackendEnvelope<T> {
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, query, signal } = options;
+  const { method = 'GET', body, query, signal, idempotencyKey } = options;
 
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
 
   const isMutation = method !== 'GET';
   if (isMutation) {
@@ -179,9 +224,57 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return payload?.data as T;
 }
 
+/**
+ * Unauthenticated request for the public M-PESA submission endpoint ONLY.
+ *
+ * Deliberately narrow: it never sends the session cookie (`credentials:
+ * 'omit'`) and never attaches a CSRF header, because the backend mounts the
+ * public route outside session/CSRF middleware. It does NOT change how
+ * authenticated requests behave. The returned ApiError never carries response
+ * `details`, so a request body (which holds a one-time token) can never be
+ * echoed into an error object that something might log or report.
+ */
+export async function publicRequest<T>(path: string, body: unknown, signal?: AbortSignal): Promise<{ status: number; data: T | undefined }> {
+  let url: string;
+  try {
+    url = buildUrl(path);
+  } catch (err) {
+    throw new ApiError(err instanceof Error ? err.message : 'The application is not configured correctly.', 'CONFIG_ERROR', 0);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      cache: 'no-store',
+      referrerPolicy: 'no-referrer',
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch {
+    throw new ApiError('Unable to connect to the server.', 'NETWORK_ERROR', 0);
+  }
+
+  let payload: BackendEnvelope<T> | undefined;
+  try {
+    payload = await response.json();
+  } catch {
+    // Non-JSON body — rely on status.
+  }
+
+  if (!response.ok || payload?.success === false) {
+    const code = payload?.error?.code ?? `HTTP_${response.status}`;
+    throw new ApiError('The request could not be completed.', code, response.status);
+  }
+  return { status: response.status, data: payload?.data };
+}
+
 export const apiClient = {
   get: <T>(path: string, query?: RequestOptions['query'], signal?: AbortSignal) => apiRequest<T>(path, { method: 'GET', query, signal }),
-  post: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'POST', body, signal }),
+  post: <T>(path: string, body?: unknown, signal?: AbortSignal, extra?: Pick<RequestOptions, 'idempotencyKey'>) =>
+    apiRequest<T>(path, { method: 'POST', body, signal, ...extra }),
   patch: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PATCH', body, signal }),
   put: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PUT', body, signal }),
 };

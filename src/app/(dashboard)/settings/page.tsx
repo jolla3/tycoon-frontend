@@ -1,7 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   Card,
   Stack,
@@ -17,38 +16,16 @@ import { Settings, User, CreditCard } from 'lucide-react';
 import Link from 'next/link';
 import { PageHeader } from '@/components/layout/page-header';
 import { useSession } from '@/features/auth/session-context';
-import { subscriptionApi, type SubscriptionPlan } from '@/lib/api/subscription';
-
-const PLAN_ORDER: SubscriptionPlan[] = ['trial', 'basic', 'pro'];
+import { subscriptionApi } from '@/lib/api/subscription';
+import { ProductChips } from '@/features/platform/product-chips';
 
 export default function SettingsPage() {
   const { user } = useSession();
-  const qc = useQueryClient();
-  const [upgradeError, setUpgradeError] = useState<string | null>(null);
-
-  const canManage =
-    user?.role === 'CLIENT_OWNER' || user?.role === 'CLIENT_ADMIN';
-
   const { data, isLoading, error } = useQuery({
     queryKey: ['subscription'],
     queryFn: () => subscriptionApi.get(),
     enabled: !!user && user.role !== 'SUPER_ADMIN',
   });
-
-  const upgrade = useMutation({
-    mutationFn: (plan: Extract<SubscriptionPlan, 'basic' | 'pro'>) =>
-      subscriptionApi.upgrade(plan),
-    onSuccess: () => {
-      setUpgradeError(null);
-      qc.invalidateQueries({ queryKey: ['subscription'] });
-    },
-    onError: (err: Error) => {
-      setUpgradeError(err.message || 'Upgrade failed');
-    },
-  });
-
-  const currentPlan = data?.subscription?.plan;
-  const currentRank = currentPlan ? PLAN_ORDER.indexOf(currentPlan) : -1;
 
   return (
     <>
@@ -94,64 +71,34 @@ export default function SettingsPage() {
                     <Chip size="small" label={data.subscription.status} variant="outlined" />
                   ) : null}
                 </Stack>
-                {upgradeError ? (
-                  <Alert severity="error" sx={{ mb: 2 }}>
-                    {upgradeError}
-                  </Alert>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                  <Typography variant="body2">Products:</Typography>
+                  <ProductChips products={data?.subscription?.products} hasSubscription={!!data?.subscription} />
+                </Stack>
+                {data?.subscription?.endDate ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Ends {new Date(data.subscription.endDate).toLocaleDateString()}
+                  </Typography>
                 ) : null}
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Available plans from backend:
+                  Plans and product access are assigned by the platform administrator. To change them, contact support.
                 </Typography>
                 <Stack spacing={1.5}>
                   {(data?.plans || []).map((p) => {
-                    const rank = PLAN_ORDER.indexOf(p.plan);
-                    const isCurrent = p.plan === currentPlan;
-                    const canUpgrade =
-                      canManage &&
-                      !isCurrent &&
-                      (p.plan === 'basic' || p.plan === 'pro') &&
-                      rank > currentRank;
+                    const isCurrent = p.plan === data?.subscription?.plan;
                     return (
-                      <Box
-                        key={p.plan}
-                        sx={{
-                          p: 1.5,
-                          border: '1px solid',
-                          borderColor: isCurrent ? 'primary.main' : 'divider',
-                          borderRadius: 1,
-                        }}
-                      >
+                      <Box key={p.plan} sx={{ p: 1.5, border: '1px solid', borderColor: isCurrent ? 'primary.main' : 'divider', borderRadius: 1 }}>
                         <Stack direction="row" justifyContent="space-between" alignItems="center">
                           <Box>
                             <Typography fontWeight={600}>{p.label}</Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {p.description}
-                            </Typography>
+                            <Typography variant="caption" color="text.secondary">{p.description}</Typography>
                           </Box>
-                          {isCurrent ? (
-                            <Chip size="small" label="Current" color="primary" />
-                          ) : canUpgrade ? (
-                            <Button
-                              size="small"
-                              variant="contained"
-                              disabled={upgrade.isPending}
-                              onClick={() => upgrade.mutate(p.plan as 'basic' | 'pro')}
-                            >
-                              Upgrade
-                            </Button>
-                          ) : (
-                            <Chip size="small" label="—" variant="outlined" />
-                          )}
+                          {isCurrent ? <Chip size="small" label="Current" color="primary" /> : null}
                         </Stack>
                       </Box>
                     );
                   })}
                 </Stack>
-                {!canManage ? (
-                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                    Only CLIENT_OWNER / CLIENT_ADMIN can upgrade plans.
-                  </Typography>
-                ) : null}
               </>
             )}
           </Card>

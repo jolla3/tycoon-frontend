@@ -19,19 +19,40 @@ export interface CreateHouseInput {
   paymentReferences?: string[];
 }
 
+/** estateId cannot be changed after creation. */
+export interface UpdateHouseInput {
+  houseNumber?: string;
+  monthlyRent?: number;
+  dueDay?: number;
+  paymentReferences?: string[];
+  status?: 'occupied' | 'vacant';
+  isActive?: boolean;
+  houseTypeId?: string | null;
+}
+
 export type ChargeType = 'RENT' | 'WATER' | 'ELECTRICITY' | 'OTHER';
 
 export interface HouseBillingConfig {
-  _id?: string;
+  _id: string;
   houseId?: string;
   chargeType: ChargeType;
   description?: string;
   amountCents: number;
   dueDay?: number;
+  frequency?: string;
   isActive?: boolean;
   effectiveFrom?: string;
+  effectiveTo?: string | null;
 }
 
+/** Input to upsert. The backend assigns _id. */
+export type HouseBillingConfigInput = Omit<HouseBillingConfig, '_id' | 'houseId'>;
+
+/**
+ * Charge-based totals (sum of open RentCharge balances). This is NOT a ledger
+ * balance and says nothing about who owes it; do not present it as the
+ * current occupant's liability.
+ */
 export interface HouseBalance {
   billedCents: number;
   paidCents: number;
@@ -60,18 +81,12 @@ export const housesApi = {
     apiClient.get<Paginated<HouseDetail>>('/houses', query as Record<string, QueryValue>),
   get: (id: string) => apiClient.get<HouseDetail>(`/houses/${id}`),
   create: (input: CreateHouseInput) => apiClient.post<House>('/houses', input),
-  update: (
-    id: string,
-    updates: Omit<Partial<CreateHouseInput>, 'houseTypeId'> & {
-      status?: string;
-      isActive?: boolean;
-      houseTypeId?: string | null;
-    }
-  ) => apiClient.patch<House>(`/houses/${id}`, updates),
+  update: (id: string, updates: UpdateHouseInput) => apiClient.patch<House>(`/houses/${id}`, updates),
   listBillingConfig: (houseId: string) =>
     apiClient.get<HouseBillingConfig[]>(`/houses/${houseId}/billing-config`),
-  upsertBillingConfig: (houseId: string, input: Omit<HouseBillingConfig, '_id' | 'houseId'>) =>
+  upsertBillingConfig: (houseId: string, input: HouseBillingConfigInput) =>
     apiClient.put<HouseBillingConfig>(`/houses/${houseId}/billing-config`, input),
-  deactivateBillingConfig: (houseId: string, chargeType: ChargeType) =>
-    apiClient.post<HouseBillingConfig>(`/houses/${houseId}/billing-config/${chargeType}/deactivate`),
+  /** Deactivates one config by its _id. */
+  deactivateBillingConfig: (houseId: string, configId: string) =>
+    apiClient.post<HouseBillingConfig>(`/houses/${houseId}/billing-config/${configId}/deactivate`),
 };

@@ -1,4 +1,5 @@
 import { apiClient, type QueryValue } from './client';
+import type { ChargeSlice } from '@/types/financial';
 
 export interface HouseTypeBillingLine {
   chargeType: 'RENT' | 'WATER' | 'ELECTRICITY' | 'OTHER';
@@ -9,6 +10,7 @@ export interface HouseTypeBillingLine {
 
 export interface HouseType {
   _id: string;
+  estateId: string;
   name: string;
   description?: string;
   defaultRentCents: number;
@@ -20,7 +22,14 @@ export interface HouseType {
   updatedAt?: string;
 }
 
+/**
+ * BLOCKED BY BACKEND: the create route's validator currently omits `estateId`
+ * and strips it, while the service requires it, so creation fails until the
+ * backend schema accepts it. The frontend sends it because the contract
+ * requires it; it must not be dropped client-side to hide the defect.
+ */
 export interface CreateHouseTypeInput {
+  estateId: string;
   name: string;
   description?: string;
   defaultRentCents?: number;
@@ -29,6 +38,18 @@ export interface CreateHouseTypeInput {
   isActive?: boolean;
 }
 
+export interface HouseTypeWorkspaceTenant {
+  _id: string;
+  name: string;
+  phone?: string;
+  status?: string;
+}
+
+/**
+ * Tenancy-aware sections. Current, historical, unattributed legacy and orphaned
+ * charges are separate on purpose and must never be summed into "the occupant's
+ * debt". `allHouseHistory` and the flat metrics are explicitly house-wide history.
+ */
 export interface HouseTypeWorkspace {
   houseType: HouseType;
   period: string;
@@ -36,30 +57,41 @@ export interface HouseTypeWorkspace {
     houseCount: number;
     occupiedHouses: number;
     vacantHouses: number;
+    /** Houses with exactly one active tenancy. */
     tenantCount: number;
-    occupancyRatePercent: number | null;
+    currentTenancy: ChargeSlice;
+    historicalTenancies: ChargeSlice;
+    unattributedLegacy: ChargeSlice;
+    orphanedTenancy: ChargeSlice;
+    allHouseHistory: ChargeSlice;
+    /** Same figures as allHouseHistory, kept by the backend for compatibility. */
     billedCents: number;
     collectedCents: number;
     outstandingCents: number;
     openOutstandingCents: number;
     collectionRatePercent: number | null;
+    currentTenancyCollectionRatePercent: number | null;
+    /** Houses with more than one simultaneously active tenancy. Their current slice is withheld. */
+    ambiguousCurrentOccupancyHouses: number;
   };
   houses: Array<{
     _id: string;
     houseNumber: string;
     estateId: string;
     status: string;
-    monthlyRent: number;
-    tenant: { _id: string; name: string; phone?: string; status?: string } | null;
-    periodBilledCents: number;
-    periodPaidCents: number;
-    periodOutstandingCents: number;
+    billingSource: string;
+    currentTenancy: { _id: string; tenant: HouseTypeWorkspaceTenant | null; financials: ChargeSlice } | null;
+    currentOccupancyConflict: boolean;
+    historicalTenancyFinancials: ChargeSlice;
+    unattributedLegacyFinancials: ChargeSlice;
+    orphanedTenancyFinancials: ChargeSlice;
   }>;
 }
 
 export const houseTypesApi = {
-  list: (includeInactive = false) =>
-    apiClient.get<HouseType[]>('/house-types', includeInactive ? { includeInactive: true } : undefined),
+  /** estateId narrows server-side. Include it in every cache key. */
+  list: (query: { estateId?: string; includeInactive?: boolean } = {}) =>
+    apiClient.get<HouseType[]>('/house-types', { estateId: query.estateId, includeInactive: query.includeInactive ? true : undefined }),
   get: (id: string) => apiClient.get<HouseType>(`/house-types/${id}`),
   workspace: (id: string, query?: { estateId?: string }) =>
     apiClient.get<HouseTypeWorkspace>(
@@ -67,7 +99,7 @@ export const houseTypesApi = {
       query as Record<string, QueryValue> | undefined
     ),
   create: (input: CreateHouseTypeInput) => apiClient.post<HouseType>('/house-types', input),
-  update: (id: string, input: Partial<CreateHouseTypeInput>) =>
+  update: (id: string, input: Partial<Omit<CreateHouseTypeInput, 'estateId'>>) =>
     apiClient.patch<HouseType>(`/house-types/${id}`, input),
   deactivate: (id: string) => apiClient.post<HouseType>(`/house-types/${id}/deactivate`),
 };

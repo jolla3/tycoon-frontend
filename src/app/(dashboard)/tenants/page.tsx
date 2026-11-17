@@ -14,6 +14,7 @@ import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { tenantsApi } from '@/lib/api/tenants';
 import { housesApi } from '@/lib/api/houses';
 import { houseTypesApi } from '@/lib/api/house-types';
+import { estateKeys } from '@/lib/query/keys';
 import { useVisibleEstates } from '@/features/estates/use-visible-estates';
 import { useSession } from '@/features/auth/session-context';
 import { permissions } from '@/lib/permissions/permissions';
@@ -27,8 +28,6 @@ export default function TenantsPage() {
   const router = useRouter();
   const { user } = useSession();
   const { estates } = useVisibleEstates();
-  const { data: houseTypes } = useQuery({ queryKey: ['house-types'], queryFn: () => houseTypesApi.list(true) });
-  const { data: housesData } = useQuery({ queryKey: ['houses', 'tenant-filter'], queryFn: () => housesApi.list({}) });
   const queryClient = useQueryClient();
   const identity = user ? identityKeyFromUser(user) : 'anon';
   const [estateId, setEstateId] = useState('');
@@ -40,32 +39,43 @@ export default function TenantsPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
 
+  // House types and houses are estate-scoped server-side and keyed by estate, so the
+  // filter options always belong to the selected estate.
+  const { data: houseTypes } = useQuery({
+    queryKey: estateKeys.houseTypes(estateId || undefined, true),
+    queryFn: () => houseTypesApi.list({ estateId: estateId || undefined, includeInactive: true }),
+  });
+  // Houses for the house-type narrowing and the house dropdown. The API caps pages at 100;
+  // when the estate has more houses the lookup is incomplete and the UI says so instead of
+  // silently filtering a partial set.
+  const houseLookupFilters = { houseTypeId: houseTypeFilter || undefined };
+  const { data: housesData } = useQuery({
+    queryKey: estateKeys.houses(estateId || undefined, { purpose: 'tenant-filter', ...houseLookupFilters }),
+    queryFn: () => housesApi.list({ estateId: estateId || undefined, houseTypeId: houseTypeFilter || undefined, limit: 100 }),
+    enabled: Boolean(estateId) || Boolean(houseTypeFilter),
+  });
+  const houseLookupTruncated = Boolean(housesData && housesData.pagination.total > housesData.items.length);
+
+  // estateId is sent to the server and is part of both cache keys.
   const { data, isLoading, error, freshness, cachedAt } = useCachedQuery(
-    `${identity}:tenants:list`,
-    ['tenants', identity],
-    () => tenantsApi.list()
+    `${identity}:tenants:list:${estateId || 'all'}`,
+    [...estateKeys.tenants(estateId || undefined, { identity })],
+    () => tenantsApi.list({ estateId: estateId || undefined })
   );
 
-  const houseById = useMemo(() => {
-    const m = new Map<string, { houseTypeId?: string; houseNumber?: string }>();
-    for (const h of housesData?.items ?? []) m.set(h._id, h as { houseTypeId?: string; houseNumber?: string });
-    return m;
-  }, [housesData]);
-
+  // Status and house are narrowings of the COMPLETE server result (the tenants endpoint is
+  // not paginated), so they cannot hide rows that live on another page.
+  const houseTypeHouseIds = useMemo(
+    () => (houseTypeFilter ? new Set((housesData?.items ?? []).map((h) => h._id)) : null),
+    [houseTypeFilter, housesData]
+  );
   const filtered = useMemo(() => {
     let rows = data ?? [];
-    if (estateId) rows = rows.filter((t) => t.estateId === estateId);
     if (statusFilter) rows = rows.filter((t) => t.status === statusFilter);
     if (houseFilter) rows = rows.filter((t) => String(t.houseId) === houseFilter);
-    if (houseTypeFilter) {
-      rows = rows.filter((t) => {
-        const h = houseById.get(String(t.houseId));
-        if (houseTypeFilter === '__none__') return !h?.houseTypeId;
-        return h?.houseTypeId && String(h.houseTypeId) === houseTypeFilter;
-      });
-    }
+    if (houseTypeHouseIds) rows = rows.filter((t) => houseTypeHouseIds.has(String(t.houseId)));
     return rows;
-  }, [data, estateId, statusFilter, houseFilter, houseTypeFilter, houseById]);
+  }, [data, statusFilter, houseFilter, houseTypeHouseIds]);
 
   const canManage = user ? permissions.canManageTenants(user.role) : false;
 
@@ -100,7 +110,7 @@ export default function TenantsPage() {
 
       <Card sx={{ p: 2, mb: 2 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap" useFlexGap>
-          <Select size="small" displayEmpty value={estateId} onChange={(e) => setEstateId(e.target.value)} sx={{ minWidth: 160 }}>
+          <Select size="small" displayEmpty value={estateId} onChange={(e) => { setEstateId(e.target.value); setHouseTypeFilter(''); setHouseFilter(''); }} sx={{ minWidth: 160 }}>
             <MenuItem value="">All estates</MenuItem>
             {estates?.map((e) => (
               <MenuItem key={e._id} value={e._id}>
@@ -108,9 +118,8 @@ export default function TenantsPage() {
               </MenuItem>
             ))}
           </Select>
-          <Select size="small" displayEmpty value={houseTypeFilter} onChange={(e) => setHouseTypeFilter(e.target.value)} sx={{ minWidth: 160 }}>
+          <Select size="small" displayEmpty value={houseTypeFilter} onChange={(e) => { setHouseTypeFilter(e.target.value); setHouseFilter(''); }} sx={{ minWidth: 160 }}>
             <MenuItem value="">All house types</MenuItem>
-            <MenuItem value="__none__">Unclassified house</MenuItem>
             {(houseTypes ?? []).map((ht) => (
               <MenuItem key={ht._id} value={ht._id}>{ht.name}</MenuItem>
             ))}
@@ -122,11 +131,16 @@ export default function TenantsPage() {
           </Select>
           <Select size="small" displayEmpty value={houseFilter} onChange={(e) => setHouseFilter(e.target.value)} sx={{ minWidth: 140 }}>
             <MenuItem value="">Any house</MenuItem>
-            {(housesData?.items ?? []).filter((h) => !estateId || h.estateId === estateId).map((h) => (
+            {(housesData?.items ?? []).map((h) => (
               <MenuItem key={h._id} value={h._id}>{h.houseNumber}</MenuItem>
             ))}
           </Select>
         </Stack>
+        {houseLookupTruncated ? (
+          <Alert severity="warning" sx={{ mt: 1.5 }}>
+            This estate has more than {housesData?.items.length} houses, so the house and house-type filters cover only part of it. Narrow by estate and status to see everyone.
+          </Alert>
+        ) : null}
       </Card>
 
       <Card>
@@ -300,13 +314,12 @@ function MoveTenantDialog({
   const canReachServer = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
 
   const { data: houses } = useQuery({
-    queryKey: ['houses', 'for-tenant-move'],
-    queryFn: () => housesApi.list({ status: 'vacant', limit: 100 }),
+    queryKey: estateKeys.houses(tenant.estateId, { purpose: 'tenant-move', status: 'vacant' }),
+    queryFn: () => housesApi.list({ estateId: tenant.estateId, status: 'vacant', limit: 100 }),
     enabled: open,
   });
 
-  const vacantSameEstate =
-    houses?.items.filter((h) => h.estateId === tenant.estateId && h._id !== tenant.houseId) ?? [];
+  const vacantSameEstate = houses?.items.filter((h) => h._id !== tenant.houseId) ?? [];
 
   const mutation = useMutation({
     mutationFn: () => tenantsApi.move(tenant._id, houseId),
@@ -361,18 +374,14 @@ function CreateTenantDialog({ open, onClose, estateId, onCreated }: { open: bool
   const [houseId, setHouseId] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
-  // No estateId sent to the backend either (see lib/api/houses.ts) — fetch
-  // all vacant houses and narrow to the selected estate client-side.
+  // Vacant houses are requested for the chosen estate only, server-side.
   const { data: houses } = useQuery({
-    queryKey: ['houses', 'for-tenant-form'],
-    queryFn: () => housesApi.list({ status: 'vacant', limit: 100 }),
-    enabled: open,
+    queryKey: estateKeys.houses(estateId || undefined, { purpose: 'tenant-create', status: 'vacant' }),
+    queryFn: () => housesApi.list({ estateId, status: 'vacant', limit: 100 }),
+    enabled: open && Boolean(estateId),
   });
 
-  const vacantForEstate = useMemo(() => {
-    const items = houses?.items ?? [];
-    return estateId ? items.filter((h) => h.estateId === estateId) : items;
-  }, [houses, estateId]);
+  const vacantForEstate = houses?.items ?? [];
 
   const mutation = useMutation({
     mutationFn: () => tenantsApi.create({ name, phone, houseId }),

@@ -10,7 +10,9 @@ import {
 import { ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { houseTypesApi } from '@/lib/api/house-types';
-import { formatCents, formatAmount } from '@/lib/formatting/currency';
+import { formatCents, formatMaybeNumber } from '@/lib/formatting/currency';
+import { MetricCard } from '@/features/finance/metric-card';
+import type { ChargeSlice } from '@/types/financial';
 import { ApiError } from '@/lib/api/client';
 import { openWorkspace, readWorkspaceId } from '@/lib/navigation/workspace';
 
@@ -70,15 +72,37 @@ export default function HouseTypeWorkspacePage() {
         <Kpi label="Houses" value={String(m.houseCount)} />
         <Kpi label="Occupied" value={String(m.occupiedHouses)} />
         <Kpi label="Vacant" value={String(m.vacantHouses)} />
-        <Kpi label="Occupancy" value={m.occupancyRatePercent != null ? `${m.occupancyRatePercent}%` : '—'} />
-        <Kpi label="Tenants" value={String(m.tenantCount)} />
-        <Kpi label="Billed" value={formatCents(m.billedCents)} />
-        <Kpi label="Collected" value={formatCents(m.collectedCents)} />
-        <Kpi label="Outstanding" value={formatCents(m.outstandingCents)} />
-        <Kpi label="Collection rate" value={m.collectionRatePercent != null ? `${m.collectionRatePercent}%` : '—'} />
+        <Kpi label="Houses with one active tenancy" value={String(m.tenantCount)} />
       </Stack>
 
-      <Card sx={{ p: 2 }}>
+      {m.ambiguousCurrentOccupancyHouses > 0 ? (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {m.ambiguousCurrentOccupancyHouses} house(s) have more than one active tenancy. Their current-tenancy figures are withheld until the occupancy is corrected.
+        </Alert>
+      ) : null}
+
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Current tenancies (period {data.period})</Typography>
+      <SliceCards slice={m.currentTenancy} rate={m.currentTenancyCollectionRatePercent} />
+
+      <Typography variant="subtitle2" sx={{ mb: 1, mt: 2 }}>Earlier tenancies</Typography>
+      <SliceCards slice={m.historicalTenancies} />
+
+      <Typography variant="subtitle2" sx={{ mb: 1, mt: 2 }}>Unattributed legacy charges</Typography>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+        Charges created before tenancies existed. They cannot be assigned to a tenant and are not any current tenant&apos;s debt.
+      </Typography>
+      <SliceCards slice={m.unattributedLegacy} />
+
+      <Typography variant="subtitle2" sx={{ mb: 1, mt: 2 }}>Orphaned tenancy charges</Typography>
+      <SliceCards slice={m.orphanedTenancy} />
+
+      <Typography variant="subtitle2" sx={{ mb: 1, mt: 2 }}>All house history (open charges)</Typography>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+        House-wide history across every tenancy. Not the current occupants&apos; obligation.
+      </Typography>
+      <SliceCards slice={m.allHouseHistory} rate={m.collectionRatePercent} />
+
+      <Card sx={{ p: 2, mt: 3 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
           Houses of this type
         </Typography>
@@ -92,47 +116,48 @@ export default function HouseTypeWorkspacePage() {
               <TableHead>
                 <TableRow>
                   <TableCell>House</TableCell>
-                  <TableCell>Tenant</TableCell>
-                  <TableCell align="right">Listed rent</TableCell>
-                  <TableCell align="right">Billed</TableCell>
-                  <TableCell align="right">Paid</TableCell>
-                  <TableCell align="right">Outstanding</TableCell>
+                  <TableCell>Current tenant</TableCell>
+                  <TableCell align="right">Current billed</TableCell>
+                  <TableCell align="right">Current collected</TableCell>
+                  <TableCell align="right">Current open</TableCell>
+                  <TableCell align="right">Earlier tenancies open</TableCell>
+                  <TableCell align="right">Unattributed open</TableCell>
                   <TableCell>Status</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {data.houses.map((h) => (
-                  <TableRow key={h._id} hover>
-                    <TableCell>
-                      <Typography
-                        fontWeight={600}
-                        sx={{ cursor: 'pointer' }}
-                        onClick={() => openWorkspace('house', h._id, router)}
-                      >
-                        {h.houseNumber}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {h.tenant ? (
-                        <Typography
-                          sx={{ cursor: 'pointer' }}
-                          onClick={() => openWorkspace('tenant', h.tenant!._id, router)}
-                        >
-                          {h.tenant.name}
+                {data.houses.map((h) => {
+                  const cur = h.currentTenancy;
+                  const withheld = h.currentOccupancyConflict;
+                  return (
+                    <TableRow key={h._id} hover>
+                      <TableCell>
+                        <Typography fontWeight={600} sx={{ cursor: 'pointer' }} onClick={() => openWorkspace('house', h._id, router)}>
+                          {h.houseNumber}
                         </Typography>
-                      ) : (
-                        '—'
-                      )}
-                    </TableCell>
-                    <TableCell align="right">{formatAmount(h.monthlyRent)}</TableCell>
-                    <TableCell align="right">{formatCents(h.periodBilledCents)}</TableCell>
-                    <TableCell align="right">{formatCents(h.periodPaidCents)}</TableCell>
-                    <TableCell align="right">{formatCents(h.periodOutstandingCents)}</TableCell>
-                    <TableCell>
-                      <Chip size="small" label={h.status} color={h.status === 'occupied' ? 'success' : 'default'} variant="outlined" />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell>
+                        {withheld ? (
+                          <Chip size="small" color="warning" label="Multiple active tenancies" />
+                        ) : cur?.tenant ? (
+                          <Typography sx={{ cursor: 'pointer' }} onClick={() => openWorkspace('tenant', cur.tenant!._id, router)}>
+                            {cur.tenant.name}
+                          </Typography>
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                      <TableCell align="right">{cur && !withheld ? formatCents(cur.financials.billedCents) : '—'}</TableCell>
+                      <TableCell align="right">{cur && !withheld ? formatCents(cur.financials.collectedCents) : '—'}</TableCell>
+                      <TableCell align="right">{cur && !withheld ? formatCents(cur.financials.outstandingCents) : '—'}</TableCell>
+                      <TableCell align="right">{formatCents(h.historicalTenancyFinancials.outstandingCents)}</TableCell>
+                      <TableCell align="right">{formatCents(h.unattributedLegacyFinancials.outstandingCents)}</TableCell>
+                      <TableCell>
+                        <Chip size="small" label={h.status} color={h.status === 'occupied' ? 'success' : 'default'} variant="outlined" />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </Box>
@@ -152,5 +177,17 @@ function Kpi({ label, value }: { label: string; value: string }) {
         {value}
       </Typography>
     </Card>
+  );
+}
+
+function SliceCards({ slice, rate }: { slice: ChargeSlice; rate?: number | null }) {
+  return (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
+      <MetricCard label="Billed" value={formatCents(slice.billedCents)} />
+      <MetricCard label="Collected" value={formatCents(slice.collectedCents)} />
+      <MetricCard label="Open (unpaid charges)" value={formatCents(slice.outstandingCents)} />
+      <MetricCard label="Tenant credit (overpaid)" value={formatCents(slice.overpaidCreditCents)} caveat="Shown separately; not netted against open charges." />
+      {rate !== undefined ? <MetricCard label="Collection rate" value={rate === null ? 'Not available' : `${formatMaybeNumber(rate)}%`} /> : null}
+    </Stack>
   );
 }

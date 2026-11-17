@@ -1,7 +1,7 @@
 'use client';
 
 import { Box, AppBar, Toolbar, Typography, IconButton, Drawer, List, ListItemButton, ListItemIcon, ListItemText, useMediaQuery, useTheme, Avatar, Menu, MenuItem, Divider } from '@mui/material';
-import { LayoutDashboard, Building2, Users, CreditCard, Shield, Activity, LogOut, Menu as MenuIcon, UserRound } from 'lucide-react';
+import { LayoutDashboard, Building2, Users, CreditCard, Shield, Activity, LogOut, Menu as MenuIcon, UserRound, KeyRound, Landmark, Smartphone } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
@@ -17,6 +17,9 @@ const NAV = [
   { label: 'Clients', href: '/platform/clients', icon: Building2 },
   { label: 'Users', href: '/platform/users', icon: Users },
   { label: 'Subscriptions', href: '/platform/subscriptions', icon: CreditCard },
+  { label: 'Entitlements', href: '/platform/entitlements', icon: KeyRound },
+  { label: 'Banking monitor', href: '/platform/integrations/banking', icon: Landmark },
+  { label: 'M-PESA monitor', href: '/platform/integrations/mpesa', icon: Smartphone },
   { label: 'System Health', href: '/platform/health', icon: Activity },
   { label: 'Audit', href: '/platform/audit', icon: Shield },
 ];

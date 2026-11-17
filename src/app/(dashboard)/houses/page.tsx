@@ -28,6 +28,7 @@ import { DetailDrawer } from '@/components/ui/detail-drawer';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { useCachedQuery } from '@/hooks/use-cached-query';
 import { houseTypesApi } from '@/lib/api/house-types';
+import { estateKeys } from '@/lib/query/keys';
 import { housesApi, type ChargeType } from '@/lib/api/houses';
 import { formatAmount } from '@/lib/formatting/currency';
 import { useVisibleEstates } from '@/features/estates/use-visible-estates';
@@ -42,10 +43,6 @@ export default function HousesPage() {
   const router = useRouter();
   const { user } = useSession();
   const { estates } = useVisibleEstates();
-  const { data: houseTypes } = useQuery({
-    queryKey: ['house-types'],
-    queryFn: () => houseTypesApi.list(true),
-  });
   const queryClient = useQueryClient();
 
   const [estateId, setEstateId] = useState<string>('');
@@ -57,22 +54,23 @@ export default function HousesPage() {
   const [billingOpen, setBillingOpen] = useState(false);
   const [houseTypeFilter, setHouseTypeFilter] = useState<string>('');
 
-  // estateId is deliberately NOT sent to the backend — house.service.js#list
-  // never reads it (see lib/api/houses.ts). It's applied here, client-side,
-  // as an honest narrowing of whatever the server already scoped and returned.
+  // House types are estate-scoped on the backend, so the filter dropdown only
+  // offers types for the selected estate (or all visible estates when none is chosen).
+  const { data: houseTypes } = useQuery({
+    queryKey: estateKeys.houseTypes(estateId || undefined, true),
+    queryFn: () => houseTypesApi.list({ estateId: estateId || undefined, includeInactive: true }),
+  });
+
+  // estateId, status, search and house type are all sent to the server and are
+  // part of the cache key, so a page never mixes results from another filter.
   const identity = user ? `${user.clientId}:${user.email}` : 'anon';
   const { data, freshness, cachedAt, isLoading, error } = useCachedQuery(
     `${identity}:houses:list:${status}:${search}:${houseTypeFilter}:${estateId}`,
-    ['houses', identity, { status, search, houseTypeFilter, estateId }],
-    () => housesApi.list({ status: status || undefined, search: search || undefined, houseTypeId: houseTypeFilter && houseTypeFilter !== '__none__' ? houseTypeFilter : undefined, estateId: estateId || undefined })
+    [...estateKeys.houses(estateId || undefined, { identity, status, search, houseTypeFilter })],
+    () => housesApi.list({ status: status || undefined, search: search || undefined, houseTypeId: houseTypeFilter || undefined, estateId: estateId || undefined })
   );
 
-  const filteredItems = useMemo(() => {
-    let items = data?.items ?? [];
-    if (estateId) items = items.filter((h) => h.estateId === estateId);
-    if (houseTypeFilter === '__none__') items = items.filter((h) => !h.houseTypeId);
-    return items;
-  }, [data, estateId, houseTypeFilter]);
+  const filteredItems = data?.items ?? [];
 
   const canManage = user ? permissions.canManageHouses(user.role) : false;
 
@@ -114,7 +112,7 @@ export default function HousesPage() {
             InputProps={{ startAdornment: <Search size={16} style={{ marginRight: 8, opacity: 0.5 }} /> }}
             fullWidth
           />
-          <Select size="small" displayEmpty value={estateId} onChange={(e) => setEstateId(e.target.value)} sx={{ minWidth: 160 }}>
+          <Select size="small" displayEmpty value={estateId} onChange={(e) => { setEstateId(e.target.value); setHouseTypeFilter(''); }} sx={{ minWidth: 160 }}>
             <MenuItem value="">All estates</MenuItem>
             {estates?.map((e) => (
               <MenuItem key={e._id} value={e._id}>
@@ -129,7 +127,6 @@ export default function HousesPage() {
           </Select>
           <Select size="small" displayEmpty value={houseTypeFilter} onChange={(e) => setHouseTypeFilter(e.target.value)} sx={{ minWidth: 160 }}>
             <MenuItem value="">All house types</MenuItem>
-            <MenuItem value="__none__">Unclassified</MenuItem>
             {(houseTypes ?? []).map((ht) => (
               <MenuItem key={ht._id} value={ht._id}>{ht.name}</MenuItem>
             ))}
@@ -248,12 +245,12 @@ function EditHouseDialog({ open, onClose, house, onSaved }: { open: boolean; onC
   // backend derives those from the authenticated session/existing record,
   // not from client input.
   const { data: houseTypes } = useQuery({
-    queryKey: ['house-types', 'edit'],
-    queryFn: () => houseTypesApi.list(false),
+    queryKey: estateKeys.houseTypes(house.estateId, false),
+    queryFn: () => houseTypesApi.list({ estateId: house.estateId }),
   });
   const [monthlyRent, setMonthlyRent] = useState(String(house.monthlyRent));
   const [dueDay, setDueDay] = useState(house.dueDay ? String(house.dueDay) : '');
-  const [status, setStatus] = useState(house.status);
+  const [status, setStatus] = useState<'occupied' | 'vacant'>(house.status === 'vacant' ? 'vacant' : 'occupied');
   const [houseTypeId, setHouseTypeId] = useState(house.houseTypeId ? String(house.houseTypeId) : '');
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -301,7 +298,7 @@ houseTypeId: houseTypeId ? houseTypeId : undefined,      }),
           </Select>
           <TextField label="Monthly rent (KES)" type="number" value={monthlyRent} onChange={(e) => setMonthlyRent(e.target.value)} required />
           <TextField label="Due day of month" type="number" value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
-          <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <Select value={status} onChange={(e) => setStatus(e.target.value as 'occupied' | 'vacant')}>
             <MenuItem value="vacant">Vacant</MenuItem>
             <MenuItem value="occupied">Occupied</MenuItem>
           </Select>
@@ -350,8 +347,9 @@ function CreateHouseDialog({
   const [formError, setFormError] = useState<string | null>(null);
 
   const { data: houseTypes } = useQuery({
-    queryKey: ['house-types'],
-    queryFn: () => houseTypesApi.list(true),
+    queryKey: estateKeys.houseTypes(estateId || undefined, true),
+    queryFn: () => houseTypesApi.list({ estateId, includeInactive: true }),
+    enabled: Boolean(estateId),
   });
 
   const selectedType = useMemo(
@@ -359,7 +357,7 @@ function CreateHouseDialog({
     [houseTypes, houseTypeId]
   );
 
-  const inheritedRentKes = selectedType ? (selectedType.defaultRentCents ?? 0) / 100 : 0;
+  const inheritedRentKes = selectedType ? selectedType.defaultRentCents / 100 : 0;
   const inheritedLines = selectedType?.defaultBilling ?? [];
 
   const valid = Boolean(estateId && houseNumber.trim() && houseTypeId);
@@ -390,7 +388,7 @@ function CreateHouseDialog({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
-          <Select displayEmpty value={estateId} onChange={(e) => setEstateId(e.target.value)} fullWidth>
+          <Select displayEmpty value={estateId} onChange={(e) => { setEstateId(e.target.value); setHouseTypeId(''); }} fullWidth>
             <MenuItem value="" disabled>
               Select estate
             </MenuItem>
@@ -501,7 +499,7 @@ function HouseBillingDialog({ open, onClose, house }: { open: boolean; onClose: 
   });
 
   const deactivate = useMutation({
-    mutationFn: (ct: ChargeType) => housesApi.deactivateBillingConfig(house._id, ct),
+    mutationFn: (configId: string) => housesApi.deactivateBillingConfig(house._id, configId),
     onSuccess: () => {
       setSavedMsg('Charge deactivated (confirmed by server).');
       refetch();
@@ -525,14 +523,17 @@ function HouseBillingDialog({ open, onClose, house }: { open: boolean; onClose: 
           {configs && configs.length > 0 ? (
             <Stack spacing={1}>
               {configs.map((c) => (
-                <Stack key={c.chargeType} direction="row" justifyContent="space-between" alignItems="center" sx={{ borderBottom: '1px solid', borderColor: 'divider', py: 0.5 }}>
+                <Stack key={c._id} direction="row" justifyContent="space-between" alignItems="center" sx={{ borderBottom: '1px solid', borderColor: 'divider', py: 0.5 }}>
                   <Box>
                     <Typography variant="body2" fontWeight={600}>
                       {c.chargeType}
                       {c.isActive === false ? ' (inactive)' : ''}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {formatAmount((c.amountCents ?? 0) / 100)} · due day {c.dueDay ?? '—'}
+                      {formatAmount(c.amountCents / 100)} · due day {c.dueDay ?? '—'}
+                      {c.frequency ? ` · ${c.frequency}` : ''}
+                      {c.effectiveFrom ? ` · from ${c.effectiveFrom.slice(0, 10)}` : ''}
+                      {c.effectiveTo ? ` to ${c.effectiveTo.slice(0, 10)}` : ''}
                       {c.description ? ` · ${c.description}` : ''}
                     </Typography>
                   </Box>
@@ -544,7 +545,7 @@ function HouseBillingDialog({ open, onClose, house }: { open: boolean; onClose: 
                       onClick={() => {
                         setFormError(null);
                         setSavedMsg(null);
-                        deactivate.mutate(c.chargeType);
+                        deactivate.mutate(c._id);
                       }}
                     >
                       Deactivate

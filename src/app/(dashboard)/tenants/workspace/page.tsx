@@ -3,20 +3,19 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   Card, Stack, Typography, Tabs, Tab, Chip, Button, Skeleton, Alert, Table, TableHead, TableRow, TableCell, TableBody, Divider, Box,
-  TextField, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import { ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { tenantsApi } from '@/lib/api/tenants';
-import { formatCents } from '@/lib/formatting/currency';
+import { formatCents, formatMaybeCents } from '@/lib/formatting/currency';
 import { ApiError } from '@/lib/api/client';
 import { openWorkspace, readWorkspaceId } from '@/lib/navigation/workspace';
-import { depositsApi } from '@/lib/api/deposits';
-import { useSession } from '@/features/auth/session-context';
-import { permissions } from '@/lib/permissions/permissions';
+import { TenantDepositPanel } from '@/features/deposits/deposit-panel';
+import { KnownArrearsCard, MetricCard } from '@/features/finance/metric-card';
+import { PaymentStatusChip } from '@/components/data-display/status-chip';
 
 export default function TenantWorkspacePage() {
   const router = useRouter();
@@ -71,12 +70,12 @@ export default function TenantWorkspacePage() {
           </Stack>
         }
       />
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
-        <Card sx={{ p: 1.5, minWidth: 140 }}><Typography variant="caption" color="text.secondary">Status</Typography><Chip size="small" label={tenant.status} color={tenant.status === 'active' ? 'success' : 'default'} /></Card>
-        <Card sx={{ p: 1.5, minWidth: 150 }}><Typography variant="caption" color="text.secondary">Billed</Typography><Typography fontWeight={600}>{formatCents(f?.billedCents ?? 0)}</Typography></Card>
-        <Card sx={{ p: 1.5, minWidth: 150 }}><Typography variant="caption" color="text.secondary">Paid</Typography><Typography fontWeight={600}>{formatCents(f?.paidCents ?? 0)}</Typography></Card>
-        <Card sx={{ p: 1.5, minWidth: 150 }}><Typography variant="caption" color="text.secondary">Outstanding</Typography><Typography fontWeight={600}>{formatCents(f?.outstandingCents ?? 0)}</Typography></Card>
-        <Card sx={{ p: 1.5, minWidth: 150 }}><Typography variant="caption" color="text.secondary">Overdue</Typography><Typography fontWeight={600}>{formatCents(f?.overdueCents ?? 0)}</Typography></Card>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
+        <Card sx={{ p: 1.5, minWidth: 140 }}><Typography variant="caption" color="text.secondary">Status</Typography><div><Chip size="small" label={tenant.status} color={tenant.status === 'active' ? 'success' : 'default'} /></div></Card>
+        <MetricCard label="Billed (open charges)" value={formatMaybeCents(f?.billedCents)} />
+        <MetricCard label="Paid (open charges)" value={formatMaybeCents(f?.paidCents)} />
+        <KnownArrearsCard label="Known arrears" knownArrearsCents={f?.outstandingCents} verifiedFullObligation={f?.verifiedFullObligation} />
+        <MetricCard label="Overdue open charges" value={formatMaybeCents(f?.overdueCents)} />
       </Stack>
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable">
         <Tab label="Overview" /><Tab label="Monthly" /><Tab label="Billing history" /><Tab label="Payments" /><Tab label="SMS" /><Tab label="Activity" /><Tab label="Deposit" />
@@ -84,7 +83,10 @@ export default function TenantWorkspacePage() {
       {tab === 0 && (
         <Card sx={{ p: 2 }}>
           <Stack spacing={1}>
-            <Typography variant="body2">Current period: {f?.currentPeriod}</Typography>
+            <Typography variant="body2">Current period: {f?.currentPeriod ?? 'Not available'}</Typography>
+            {f && !f.verifiedFullObligation ? (
+              <Alert severity="info">Known arrears are a lower bound. Earlier history for this tenant has not been verified, so the true obligation may be higher.</Alert>
+            ) : null}
             {f?.oldestUnpaidPeriod && (
               <Typography variant="body2">Oldest unpaid period: {f.oldestUnpaidPeriod}</Typography>
             )}
@@ -137,10 +139,14 @@ export default function TenantWorkspacePage() {
             <Stack spacing={1} divider={<Divider />}>
               {tenant.payments!.map((pay) => (
                 <Box key={pay._id}>
-                  <Typography fontWeight={600}>{formatCents(pay.amountCents)}</Typography>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography fontWeight={600} sx={pay.status === 'REVERSED' ? { textDecoration: 'line-through', color: 'text.secondary' } : undefined}>{formatCents(pay.amountCents)}</Typography>
+                    <PaymentStatusChip status={pay.status} />
+                  </Stack>
                   <Typography variant="caption" color="text.secondary">
                     {pay.paymentDate ? new Date(pay.paymentDate).toLocaleDateString() : '—'}
                     {pay.paymentReference ? ` · ${pay.paymentReference}` : ''}
+                    {pay.status === 'REVERSED' ? ' · Reversed: not counted as collected' : ''}
                   </Typography>
                 </Box>
               ))}
@@ -176,113 +182,7 @@ export default function TenantWorkspacePage() {
           )}
         </Card>
       )}
-      {tab === 6 && <TenantDepositPanel tenantId={tenantId} tenantStatus={tenant.status} />}
+      {tab === 6 && <TenantDepositPanel tenantId={tenantId} />}
     </>
-  );
-}
-
-function TenantDepositPanel({ tenantId, tenantStatus }: { tenantId: string; tenantStatus: string }) {
-  const { user } = useSession();
-  const canManage = user ? permissions.canManageTenants(user.role) : false;
-  const qc = useQueryClient();
-  const [requireKes, setRequireKes] = useState('');
-  const [payKes, setPayKes] = useState('');
-  const [deductKes, setDeductKes] = useState('');
-  const [deductReason, setDeductReason] = useState('');
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['deposit', tenantId],
-    queryFn: () => depositsApi.get(tenantId),
-  });
-
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['deposit', tenantId] });
-
-  const requireMut = useMutation({
-    mutationFn: () => depositsApi.require(tenantId, Math.round(Number(requireKes) * 100)),
-    onSuccess: () => { setMsg('Deposit requirement saved'); setRequireKes(''); invalidate(); },
-    onError: (e) => setMsg(e instanceof ApiError ? e.message : 'Failed'),
-  });
-  const payMut = useMutation({
-    mutationFn: () => depositsApi.pay(tenantId, Math.round(Number(payKes) * 100)),
-    onSuccess: () => { setMsg('Deposit payment recorded (does not affect rent balance)'); setPayKes(''); invalidate(); },
-    onError: (e) => setMsg(e instanceof ApiError ? e.message : 'Failed'),
-  });
-  const deductMut = useMutation({
-    mutationFn: () => depositsApi.deduct(tenantId, { amountCents: Math.round(Number(deductKes) * 100), reason: deductReason }),
-    onSuccess: () => { setMsg('Deduction recorded'); setDeductKes(''); setDeductReason(''); invalidate(); },
-    onError: (e) => setMsg(e instanceof ApiError ? e.message : 'Failed'),
-  });
-  const settleMut = useMutation({
-    mutationFn: () => depositsApi.settle(tenantId),
-    onSuccess: (res: unknown) => {
-      const r = res as { settlement?: { refundDueCents?: number } };
-      setMsg(`Settled. Refund due: ${formatCents(r?.settlement?.refundDueCents ?? 0)}`);
-      invalidate();
-    },
-    onError: (e) => setMsg(e instanceof ApiError ? e.message : 'Failed'),
-  });
-
-  const dep = data?.deposit;
-  if (isLoading) return <Skeleton height={120} />;
-  if (error) return <Alert severity="error">{error instanceof ApiError ? error.message : 'Unable to load deposit'}</Alert>;
-
-  return (
-    <Card sx={{ p: 2 }}>
-      <Typography variant="subtitle1" gutterBottom>Security deposit</Typography>
-      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-        Separate from rent. Deposit payments do not change the rent Ledger balance.
-      </Typography>
-      {msg && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setMsg(null)}>{msg}</Alert>}
-      {!dep ? (
-        <Typography color="text.secondary" sx={{ mb: 2 }}>No deposit configured for this tenant yet.</Typography>
-      ) : (
-        <Stack spacing={1} sx={{ mb: 2 }}>
-          <Typography>Status: <Chip size="small" label={dep.status} /></Typography>
-          <Typography>Required: {formatCents(dep.requiredCents)}</Typography>
-          <Typography>Paid: {formatCents(dep.paidCents)}</Typography>
-          <Typography>Currently held: {formatCents(dep.heldCents)}</Typography>
-          <Typography>Refunded: {formatCents(dep.refundedCents)}</Typography>
-          {(dep.deductions?.length ?? 0) > 0 && (
-            <Box>
-              <Typography variant="subtitle2">Deductions</Typography>
-              {dep.deductions!.map((d, i) => (
-                <Typography key={i} variant="body2">
-                  {formatCents(d.amountCents)} — {d.reason}
-                  {d.deductedAt ? ` · ${new Date(d.deductedAt).toLocaleDateString()}` : ''}
-                </Typography>
-              ))}
-            </Box>
-          )}
-        </Stack>
-      )}
-      {canManage && (
-        <Stack spacing={2}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <TextField size="small" label="Required (KES)" type="number" value={requireKes} onChange={(e) => setRequireKes(e.target.value)} />
-            <Button variant="outlined" disabled={!requireKes || requireMut.isPending} onClick={() => requireMut.mutate()}>Set requirement</Button>
-          </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <TextField size="small" label="Payment (KES)" type="number" value={payKes} onChange={(e) => setPayKes(e.target.value)} />
-            <Button variant="outlined" disabled={!payKes || payMut.isPending} onClick={() => payMut.mutate()}>Record deposit payment</Button>
-          </Stack>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <TextField size="small" label="Deduction (KES)" type="number" value={deductKes} onChange={(e) => setDeductKes(e.target.value)} />
-            <TextField size="small" label="Reason" value={deductReason} onChange={(e) => setDeductReason(e.target.value)} />
-            <Button variant="outlined" color="warning" disabled={!deductKes || !deductReason || deductMut.isPending} onClick={() => deductMut.mutate()}>Add deduction</Button>
-          </Stack>
-          <Button
-            variant="contained"
-            color="secondary"
-            disabled={settleMut.isPending || !dep}
-            onClick={() => {
-              if (window.confirm('Settle move-out? This refunds remaining held deposit and marks the tenant moved out.')) settleMut.mutate();
-            }}
-          >
-            Settle move-out / refund
-          </Button>
-        </Stack>
-      )}
-    </Card>
   );
 }

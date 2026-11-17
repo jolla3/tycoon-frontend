@@ -1,120 +1,69 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Card, Typography, Stack, Chip, Alert, Skeleton, Divider, Box } from '@mui/material';
-import { Activity } from 'lucide-react';
+import { Alert, Card, Grid, Skeleton, Stack, Typography } from '@mui/material';
 import { PageHeader } from '@/components/layout/page-header';
-import { platformApi } from '@/lib/api/platform';
+import { ErrorState } from '@/components/feedback/error-state';
+import { EvidenceView } from '@/features/platform/evidence-view';
+import { platformApi, type PlatformHealth } from '@/lib/api/platform';
+import { platformKeys } from '@/lib/query/keys';
 import { dateFormat } from '@/lib/dates/period';
 
-function statusColor(s: string): 'success' | 'error' | 'warning' | 'default' {
-  const v = (s || '').toLowerCase();
-  if (v === 'ok' || v === 'up' || v === 'healthy' || v === 'connected') return 'success';
-  if (v === 'down' || v === 'error' || v === 'failed') return 'error';
-  if (v === 'degraded' || v === 'unknown') return 'warning';
-  return 'default';
-}
+const SECTIONS: Array<{ key: keyof PlatformHealth; title: string; caption?: string }> = [
+  { key: 'application', title: 'Application' },
+  { key: 'mongo', title: 'MongoDB' },
+  { key: 'redis', title: 'Redis' },
+  { key: 'scheduler', title: 'Scheduler and jobs' },
+  { key: 'banking', title: 'Banking', caption: 'Configured, implemented, provider-verified and operational are separate claims.' },
+  { key: 'mpesa', title: 'M-PESA', caption: 'Configured, implemented, provider-verified and operational are separate claims.' },
+  { key: 'sms', title: 'SMS', caption: 'Reports provider configuration. It does not prove messages were delivered.' },
+];
 
 export default function PlatformHealthPage() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['platform', 'health'],
-    queryFn: () => platformApi.health(),
-    refetchInterval: 30_000,
-  });
+  const { data, isLoading, error, dataUpdatedAt } = useQuery({ queryKey: platformKeys.health(), queryFn: () => platformApi.health(), refetchInterval: 60_000 });
 
   return (
     <>
-      <PageHeader title="System health" description="Live dependency and job status from the backend" />
-      {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {(error as Error).message || 'Failed to load health'}
-        </Alert>
-      ) : null}
-      {isLoading || !data ? (
-        <Skeleton variant="rounded" height={240} />
-      ) : (
+      <PageHeader title="System health" description="Evidence reported by the backend. This page makes no live calls to banks, M-PESA or the SMS provider." />
+      {error ? <ErrorState error={error} /> : null}
+      {isLoading ? (
+        <Grid container spacing={2}>
+          {[1, 2, 3, 4].map((i) => (
+            <Grid item xs={12} md={6} key={i}>
+              <Skeleton variant="rounded" height={140} />
+            </Grid>
+          ))}
+        </Grid>
+      ) : data ? (
         <Stack spacing={2}>
-          <Card sx={{ p: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              Application
-            </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Chip label={`App: ${data.application}`} color={statusColor(data.application)} size="small" />
-              <Chip label={`Mongo: ${data.mongo}`} color={statusColor(data.mongo)} size="small" />
-              <Chip
-                label={`Redis: ${data.redis}${data.redisLatencyMs != null ? ` (${data.redisLatencyMs}ms)` : ''}`}
-                color={statusColor(data.redis)}
-                size="small"
-              />
-            </Stack>
-          </Card>
-
-          <Card sx={{ p: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              Bank provider
-            </Typography>
-            <Typography variant="body2">
-              {data.bankProvider?.name || '—'} · configured={String(data.bankProvider?.configured)} ·
-              implemented={String(data.bankProvider?.implemented)} · liveVerified=
-              {String(data.bankProvider?.liveVerified)}
-            </Typography>
-            {data.otherBankProviders?.length ? (
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                Other: {data.otherBankProviders.map((p) => `${p.name}(${p.implemented ? 'yes' : 'no'})`).join(', ')}
-              </Typography>
-            ) : null}
-          </Card>
-
-          <Card sx={{ p: 2 }}>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              SMS provider
-            </Typography>
-            <Typography variant="body2">
-              {data.smsProvider?.name || '—'} · configured={String(data.smsProvider?.configured)} ·
-              implemented={String(data.smsProvider?.implemented)} · liveVerified=
-              {String(data.smsProvider?.liveVerified)}
-            </Typography>
-          </Card>
-
-          <Card sx={{ p: 2 }}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-              <Activity size={16} />
-              <Typography variant="subtitle1">Background jobs</Typography>
-            </Stack>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Multi-instance safe: {String(data.backgroundJobs?.multiInstanceSafe)}
-              {data.backgroundJobs?.schedulerStartedAt
-                ? ` · started ${dateFormat(data.backgroundJobs.schedulerStartedAt, 'DD MMM YYYY HH:mm')}`
-                : ''}
-            </Typography>
-            <Divider sx={{ my: 1 }} />
-            {Array.isArray(data.backgroundJobs?.jobs) &&
-            data.backgroundJobs.jobs.length &&
-            typeof data.backgroundJobs.jobs[0] !== 'string' ? (
-              (data.backgroundJobs.jobs as Array<{
-                name: string;
-                status?: string;
-                lastRunAt?: string | null;
-                lastSuccessAt?: string | null;
-                lastError?: string | null;
-              }>).map((j) => (
-                <Box key={j.name} sx={{ py: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
-                  <Typography fontWeight={600}>{j.name}</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    status={j.status || '—'} · lastRun=
-                    {j.lastRunAt ? dateFormat(j.lastRunAt, 'DD MMM HH:mm') : '—'}
-                    {j.lastError ? ` · error: ${j.lastError}` : ''}
-                  </Typography>
-                </Box>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                No job detail available
-              </Typography>
-            )}
-          </Card>
+          <Alert severity="info">
+            Last reported {data.generatedAt ? dateFormat(data.generatedAt, 'DD MMM YYYY HH:mm') : dateFormat(new Date(dataUpdatedAt).toISOString(), 'DD MMM YYYY HH:mm')}. A &quot;configured&quot; state means settings exist, not that the provider is reachable.
+          </Alert>
+          <Grid container spacing={2}>
+            {SECTIONS.map(({ key, title, caption }) => {
+              const section = data[key];
+              if (section === undefined) return null;
+              return (
+                <Grid item xs={12} md={6} key={key}>
+                  <Card sx={{ p: 2.5, height: '100%' }}>
+                    <Typography variant="subtitle1" fontWeight={600}>
+                      {title}
+                    </Typography>
+                    {caption ? (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                        {caption}
+                      </Typography>
+                    ) : (
+                      <div style={{ height: 12 }} />
+                    )}
+                    <EvidenceView data={section} />
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
         </Stack>
-      )}
+      ) : null}
     </>
   );
 }

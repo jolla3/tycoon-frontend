@@ -21,3 +21,18 @@ export function formatAmount(amount: number, currency = 'KES'): string {
 export function formatNumber(value: number): string {
   return value.toLocaleString('en-KE');
 }
+
+export const UNAVAILABLE = 'Not available';
+
+/**
+ * Money that may legitimately be unknown. `0` is a real zero balance and renders
+ * as a zero amount; `null`/`undefined` means the backend did not provide or could
+ * not verify the figure and renders as "Not available". Never coerce with `?? 0`.
+ */
+export function formatMaybeCents(cents: number | null | undefined, currency = 'KES'): string {
+  return typeof cents === 'number' && Number.isFinite(cents) ? formatCents(cents, currency) : UNAVAILABLE;
+}
+
+export function formatMaybeNumber(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? formatNumber(value) : UNAVAILABLE;
+}
