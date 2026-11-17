@@ -9,15 +9,15 @@ import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { EvidenceView } from '@/features/platform/evidence-view';
 import { TablePager } from '@/features/platform/table-pager';
-import { platformApi, type BankingIntegrationRow } from '@/lib/api/platform';
+import { platformApi, type BankConnectionStatus, type BankingIntegrationRow, type BankValidationStatus } from '@/lib/api/platform';
 import { platformKeys } from '@/lib/query/keys';
 import { dateFormat } from '@/lib/dates/period';
 
 export default function BankingIntegrationMonitorPage() {
   const [page, setPage] = useState(1);
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState<BankConnectionStatus | ''>('');
   const [provider, setProvider] = useState('');
-  const [validationStatus, setValidationStatus] = useState('');
+  const [validationStatus, setValidationStatus] = useState<BankValidationStatus | ''>('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const filters = { page, limit: 20, status: status || undefined, provider: provider || undefined, validationStatus: validationStatus || undefined };
 
@@ -27,9 +27,9 @@ export default function BankingIntegrationMonitorPage() {
   const columns: DataTableColumn<BankingIntegrationRow>[] = [
     { key: 'client', header: 'Client', render: (r) => <Link href={`/platform/clients/${r.clientId}`}>{r.clientName ?? 'Client'}</Link> },
     { key: 'provider', header: 'Provider', render: (r) => r.displayName ? `${r.provider} · ${r.displayName}` : r.provider },
-    { key: 'status', header: 'Connection', render: (r) => <Chip size="small" variant="outlined" color={r.needsReauthorization ? 'warning' : r.status === 'ACTIVE' ? 'success' : 'default'} label={r.needsReauthorization ? 'Needs reauthorization' : r.status} /> },
-    { key: 'accounts', header: 'Accounts', align: 'right', render: (r) => r.accounts?.accountCount ?? 0 },
-    { key: 'lastSync', header: 'Last successful sync', render: (r) => (r.accounts?.lastSyncSuccessAt ? dateFormat(r.accounts.lastSyncSuccessAt, 'DD MMM YYYY HH:mm') : 'Never reported') },
+    { key: 'status', header: 'Connection', render: (r) => <Chip size="small" variant="outlined" color={r.needsReauthorization || r.status === 'failed' ? 'warning' : r.status === 'active' ? 'success' : 'default'} label={r.needsReauthorization ? 'Needs reauthorization' : r.status} /> },
+    { key: 'accounts', header: 'Accounts', align: 'right', render: (r) => r.accounts.accountCount },
+    { key: 'lastSync', header: 'Last successful sync', render: (r) => (r.accounts.lastSyncSuccessAt ? dateFormat(r.accounts.lastSyncSuccessAt, 'DD MMM YYYY HH:mm') : 'Never reported') },
     { key: 'detail', header: 'Evidence', render: (r) => <button type="button" onClick={() => setExpanded(expanded === r.connectionId ? null : r.connectionId)} style={{ background: 'none', border: 0, color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}>{expanded === r.connectionId ? 'Hide' : 'View'}</button> },
   ];
 
@@ -47,17 +47,20 @@ export default function BankingIntegrationMonitorPage() {
             <MenuItem value="">Any provider</MenuItem>
             <MenuItem value="COOP">Co-operative Bank</MenuItem>
           </Select>
-          <Select size="small" displayEmpty value={status} onChange={(e) => reset(() => setStatus(e.target.value))} sx={{ minWidth: 190 }} inputProps={{ 'aria-label': 'Connection status' }}>
+          <Select size="small" displayEmpty value={status} onChange={(e) => reset(() => setStatus(e.target.value as BankConnectionStatus | ''))} sx={{ minWidth: 190 }} inputProps={{ 'aria-label': 'Connection status' }}>
             <MenuItem value="">Any connection status</MenuItem>
-            <MenuItem value="ACTIVE">Active</MenuItem>
-            <MenuItem value="NEEDS_REAUTHORIZATION">Needs reauthorization</MenuItem>
-            <MenuItem value="DISCONNECTED">Disconnected</MenuItem>
+            <MenuItem value="pending">Pending</MenuItem>
+            <MenuItem value="active">Active</MenuItem>
+            <MenuItem value="reauth_required">Needs reauthorization</MenuItem>
+            <MenuItem value="failed">Failed</MenuItem>
+            <MenuItem value="disconnected">Disconnected</MenuItem>
           </Select>
-          <Select size="small" displayEmpty value={validationStatus} onChange={(e) => reset(() => setValidationStatus(e.target.value))} sx={{ minWidth: 190 }} inputProps={{ 'aria-label': 'Account validation status' }}>
+          <Select size="small" displayEmpty value={validationStatus} onChange={(e) => reset(() => setValidationStatus(e.target.value as BankValidationStatus | ''))} sx={{ minWidth: 190 }} inputProps={{ 'aria-label': 'Account validation status' }}>
             <MenuItem value="">Any validation status</MenuItem>
-            <MenuItem value="VALIDATED">Validated</MenuItem>
-            <MenuItem value="PENDING">Pending</MenuItem>
-            <MenuItem value="FAILED">Failed</MenuItem>
+            <MenuItem value="validated">Validated</MenuItem>
+            <MenuItem value="pending">Pending</MenuItem>
+            <MenuItem value="failed">Failed</MenuItem>
+            <MenuItem value="unavailable">Unavailable</MenuItem>
           </Select>
         </Stack>
       </Card>
@@ -75,7 +78,7 @@ export default function BankingIntegrationMonitorPage() {
             <Card variant="outlined" sx={{ p: 2 }}>
               <Typography fontWeight={600}>{r.clientName ?? 'Client'}</Typography>
               <Typography variant="body2" color="text.secondary">
-                {r.provider} · {r.needsReauthorization ? 'Needs reauthorization' : r.status} · {r.accounts?.accountCount ?? 0} accounts
+                {r.provider} · {r.needsReauthorization ? 'Needs reauthorization' : r.status} · {r.accounts.accountCount} accounts
               </Typography>
             </Card>
           )}

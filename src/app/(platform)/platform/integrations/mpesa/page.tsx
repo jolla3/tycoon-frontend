@@ -3,22 +3,22 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Card, Chip, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Card, Chip, MenuItem, Select, Stack, Typography } from '@mui/material';
 import { Smartphone } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { EvidenceView } from '@/features/platform/evidence-view';
 import { TablePager } from '@/features/platform/table-pager';
-import { platformApi, type MpesaIntegrationRow } from '@/lib/api/platform';
+import { platformApi, type MpesaCapability, type MpesaIntegrationFilters, type MpesaIntegrationRow, type MpesaOperationalState } from '@/lib/api/platform';
 import { platformKeys } from '@/lib/query/keys';
 
 export default function MpesaIntegrationMonitorPage() {
   const [page, setPage] = useState(1);
-  const [operationalState, setOperationalState] = useState('');
-  const [callbackCapability, setCallbackCapability] = useState('');
-  const [pullCapability, setPullCapability] = useState('');
+  const [operationalState, setOperationalState] = useState<MpesaOperationalState | ''>('');
+  const [callbackCapability, setCallbackCapability] = useState<MpesaCapability | ''>('');
+  const [pullCapability, setPullCapability] = useState<MpesaCapability | ''>('');
   const [expanded, setExpanded] = useState<string | null>(null);
-  const filters = {
+  const filters: MpesaIntegrationFilters = {
     page,
     limit: 20,
     operationalState: operationalState || undefined,
@@ -28,15 +28,15 @@ export default function MpesaIntegrationMonitorPage() {
 
   const { data, isLoading, error } = useQuery({ queryKey: platformKeys.mpesaIntegrations(filters), queryFn: () => platformApi.integrations.mpesa(filters) });
   const reset = (fn: () => void) => { fn(); setPage(1); };
-  const rowId = (r: MpesaIntegrationRow) => r.merchantProfileId ?? `${r.clientId}:${r.shortcode ?? ''}`;
+  const rowId = (r: MpesaIntegrationRow) => r.id;
 
   const columns: DataTableColumn<MpesaIntegrationRow>[] = [
     { key: 'client', header: 'Client', render: (r) => <Link href={`/platform/clients/${r.clientId}`}>{r.clientName ?? 'Client'}</Link> },
-    { key: 'merchant', header: 'Merchant', render: (r) => [r.displayName, r.merchantType, r.shortcode].filter(Boolean).join(' · ') || '—' },
-    { key: 'state', header: 'Operational state', render: (r) => <Chip size="small" variant="outlined" label={r.operationalState ?? 'Not reported'} /> },
-    { key: 'callback', header: 'Callback', render: (r) => r.callbackCapability ?? '—' },
-    { key: 'pull', header: 'Pull', render: (r) => r.pullCapability ?? '—' },
-    { key: 'blockers', header: 'Blockers', render: (r) => (r.blockers && r.blockers.length ? r.blockers.join(', ') : 'None reported') },
+    { key: 'merchant', header: 'Merchant', render: (r) => [r.displayName, r.merchantType, r.businessShortCode].filter(Boolean).join(' · ') || '—' },
+    { key: 'state', header: 'Operational state', render: (r) => <Chip size="small" variant="outlined" label={r.operationalState} /> },
+    { key: 'callback', header: 'Callback', render: (r) => r.callbackCapability },
+    { key: 'pull', header: 'Pull', render: (r) => r.pullCapability },
+    { key: 'blockers', header: 'Blockers', render: (r) => (r.blockers.length ? r.blockers.join(', ') : 'None') },
     { key: 'detail', header: 'Evidence', render: (r) => <button type="button" onClick={() => setExpanded(expanded === rowId(r) ? null : rowId(r))} style={{ background: 'none', border: 0, color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}>{expanded === rowId(r) ? 'Hide' : 'View'}</button> },
   ];
 
@@ -50,9 +50,25 @@ export default function MpesaIntegrationMonitorPage() {
       </Alert>
       <Card sx={{ p: 2, mb: 2 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-          <TextField size="small" label="Operational state" value={operationalState} onChange={(e) => reset(() => setOperationalState(e.target.value.trim()))} />
-          <TextField size="small" label="Callback capability" value={callbackCapability} onChange={(e) => reset(() => setCallbackCapability(e.target.value.trim()))} />
-          <TextField size="small" label="Pull capability" value={pullCapability} onChange={(e) => reset(() => setPullCapability(e.target.value.trim()))} />
+          <Select size="small" displayEmpty value={operationalState} onChange={(e) => reset(() => setOperationalState(e.target.value as MpesaOperationalState | ''))} sx={{ minWidth: 190 }} inputProps={{ 'aria-label': 'Operational state' }}>
+            <MenuItem value="">Any operational state</MenuItem>
+            <MenuItem value="DRAFT">Draft</MenuItem>
+            <MenuItem value="NOT_READY">Not ready</MenuItem>
+            <MenuItem value="ACTIVE">Active</MenuItem>
+            <MenuItem value="SUSPENDED">Suspended</MenuItem>
+          </Select>
+          <Select size="small" displayEmpty value={callbackCapability} onChange={(e) => reset(() => setCallbackCapability(e.target.value as MpesaCapability | ''))} sx={{ minWidth: 190 }} inputProps={{ 'aria-label': 'Callback capability' }}>
+            <MenuItem value="">Any callback capability</MenuItem>
+            <MenuItem value="UNKNOWN">Unknown</MenuItem>
+            <MenuItem value="NOT_ENABLED">Not enabled</MenuItem>
+            <MenuItem value="VERIFIED">Verified</MenuItem>
+          </Select>
+          <Select size="small" displayEmpty value={pullCapability} onChange={(e) => reset(() => setPullCapability(e.target.value as MpesaCapability | ''))} sx={{ minWidth: 170 }} inputProps={{ 'aria-label': 'Pull capability' }}>
+            <MenuItem value="">Any Pull capability</MenuItem>
+            <MenuItem value="UNKNOWN">Unknown</MenuItem>
+            <MenuItem value="NOT_ENABLED">Not enabled</MenuItem>
+            <MenuItem value="VERIFIED">Verified</MenuItem>
+          </Select>
         </Stack>
       </Card>
       <Card>
@@ -69,7 +85,7 @@ export default function MpesaIntegrationMonitorPage() {
             <Card variant="outlined" sx={{ p: 2 }}>
               <Typography fontWeight={600}>{r.clientName ?? 'Client'}</Typography>
               <Typography variant="body2" color="text.secondary">
-                {[r.displayName, r.shortcode].filter(Boolean).join(' · ') || '—'} · {r.operationalState ?? 'Not reported'}
+                {[r.displayName, r.businessShortCode].filter(Boolean).join(' · ') || '—'} · {r.operationalState}
               </Typography>
             </Card>
           )}

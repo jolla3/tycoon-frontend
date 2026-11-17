@@ -16,16 +16,20 @@ import {
   DialogActions,
   Chip,
   Typography,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import { Layers, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { houseTypesApi, type HouseType, type CreateHouseTypeInput } from '@/lib/api/house-types';
-import { formatCents } from '@/lib/formatting/currency';
+import { formatMaybeCents, formatMaybeNumber } from '@/lib/formatting/currency';
 import { ApiError } from '@/lib/api/client';
 import { useSession } from '@/features/auth/session-context';
 import { permissions } from '@/lib/permissions/permissions';
 import { useConnectivity } from '@/lib/sync/connectivity';
+import { useVisibleEstates } from '@/features/estates/use-visible-estates';
+import { estateKeys } from '@/lib/query/keys';
 
 export default function HouseTypesPage() {
   const router = useRouter();
@@ -37,10 +41,15 @@ export default function HouseTypesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<HouseType | null>(null);
 
+  const { estates } = useVisibleEstates();
+  const [estateId, setEstateId] = useState('');
+
+  // The estate filter is sent to the server and is part of the cache key.
   const { data, isLoading, error } = useQuery({
-    queryKey: ['house-types', true],
-    queryFn: () => houseTypesApi.list(true),
+    queryKey: estateKeys.houseTypes(estateId || undefined, true),
+    queryFn: () => houseTypesApi.list({ estateId: estateId || undefined, includeInactive: true }),
   });
+  const estateName = (id: string) => estates?.find((e) => e._id === id)?.name ?? '—';
 
   const columns: DataTableColumn<HouseType>[] = [
     {
@@ -55,8 +64,9 @@ export default function HouseTypesPage() {
         </span>
       ),
     },
-    { key: 'rent', header: 'Default rent', render: (t) => formatCents(t.defaultRentCents ?? 0) },
-    { key: 'houses', header: 'Houses', render: (t) => t.houseCount ?? 0 },
+    { key: 'estate', header: 'Estate', render: (t) => estateName(t.estateId) },
+    { key: 'rent', header: 'Default rent', render: (t) => formatMaybeCents(t.defaultRentCents) },
+    { key: 'houses', header: 'Houses', render: (t) => formatMaybeNumber(t.houseCount) },
     {
       key: 'status',
       header: 'Status',
@@ -95,6 +105,14 @@ export default function HouseTypesPage() {
           ) : null
         }
       />
+      <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+        <Select size="small" displayEmpty value={estateId} onChange={(e) => setEstateId(e.target.value)} sx={{ minWidth: 200 }}>
+          <MenuItem value="">All estates</MenuItem>
+          {estates?.map((e) => (
+            <MenuItem key={e._id} value={e._id}>{e.name}</MenuItem>
+          ))}
+        </Select>
+      </Stack>
       <Card>
         <DataTable
           columns={columns}
@@ -122,7 +140,7 @@ export default function HouseTypesPage() {
                 />
               </Stack>
               <Typography variant="body2" color="text.secondary">
-                Default rent {formatCents(t.defaultRentCents ?? 0)} · {t.houseCount ?? 0} house(s)
+                {estateName(t.estateId)} · Default rent {formatMaybeCents(t.defaultRentCents)} · {formatMaybeNumber(t.houseCount)} house(s)
               </Typography>
               {canManage ? (
                 <Button
@@ -142,22 +160,26 @@ export default function HouseTypesPage() {
       </Card>
       {createOpen && (
         <HouseTypeDialog
+          estates={estates ?? []}
+          defaultEstateId={estateId}
           open={createOpen}
           onClose={() => setCreateOpen(false)}
           onSaved={() => {
             setCreateOpen(false);
-            queryClient.invalidateQueries({ queryKey: ['house-types'] });
+            queryClient.invalidateQueries({ queryKey: estateKeys.houseTypesFamily() });
           }}
         />
       )}
       {editing && (
         <HouseTypeDialog
+          estates={estates ?? []}
+          defaultEstateId={editing.estateId}
           open={!!editing}
           initial={editing}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
-            queryClient.invalidateQueries({ queryKey: ['house-types'] });
+            queryClient.invalidateQueries({ queryKey: estateKeys.houseTypesFamily() });
           }}
         />
       )}
@@ -170,15 +192,20 @@ function HouseTypeDialog({
   onClose,
   onSaved,
   initial,
+  estates,
+  defaultEstateId,
 }: {
+  estates: { _id: string; name: string }[];
+  defaultEstateId: string;
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
   initial?: HouseType;
 }) {
+  const [formEstateId, setFormEstateId] = useState(initial?.estateId ?? defaultEstateId);
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
-  const [rentKes, setRentKes] = useState(initial ? String((initial.defaultRentCents ?? 0) / 100) : '');
+  const [rentKes, setRentKes] = useState(initial && typeof initial.defaultRentCents === 'number' ? String(initial.defaultRentCents / 100) : '');
   const [dueDay, setDueDay] = useState(initial?.defaultDueDay ? String(initial.defaultDueDay) : '30');
   const [waterKes, setWaterKes] = useState(() => {
     const line = initial?.defaultBilling?.find((b) => b.chargeType === 'WATER');
@@ -251,14 +278,16 @@ function HouseTypeDialog({
           dueDay: day,
         });
       }
-      const payload: CreateHouseTypeInput = {
+      const fields = {
         name: name.trim(),
         description: description.trim() || undefined,
         defaultRentCents,
         defaultDueDay: day,
         defaultBilling,
       };
-      if (initial) return houseTypesApi.update(initial._id, payload);
+      if (initial) return houseTypesApi.update(initial._id, fields);
+      if (!formEstateId) throw new Error('Choose an estate for this house type');
+      const payload: CreateHouseTypeInput = { estateId: formEstateId, ...fields };
       return houseTypesApi.create(payload);
     },
     onSuccess: () => onSaved(),
@@ -278,6 +307,19 @@ function HouseTypeDialog({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {formError && <Alert severity="error">{formError}</Alert>}
+          <TextField
+            select
+            label="Estate"
+            value={formEstateId}
+            onChange={(e) => setFormEstateId(e.target.value)}
+            disabled={!!initial}
+            required
+            helperText={initial ? 'A house type belongs to one estate and cannot be moved.' : 'House types are specific to an estate.'}
+          >
+            {estates.map((e) => (
+              <MenuItem key={e._id} value={e._id}>{e.name}</MenuItem>
+            ))}
+          </TextField>
           <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
           <TextField
             label="Description"
@@ -379,7 +421,7 @@ function HouseTypeDialog({
           </Typography>
           {initial && (
             <Typography variant="caption" color="text.secondary">
-              Used by {initial.houseCount ?? 0} house(s).
+              Used by {formatMaybeNumber(initial.houseCount)} house(s).
             </Typography>
           )}
         </Stack>
@@ -393,7 +435,7 @@ function HouseTypeDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={!name.trim() || mutation.isPending}
+          disabled={!name.trim() || (!initial && !formEstateId) || mutation.isPending}
           onClick={() => {
             setFormError(null);
             mutation.mutate();

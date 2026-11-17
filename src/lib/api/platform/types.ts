@@ -80,14 +80,14 @@ export interface ClientListFilters {
   subscriptionStatus?: string;
   hasSubscription?: boolean;
   bankProvider?: string;
-  bankConnectionStatus?: string;
-  bankAccountConnectionStatus?: string;
-  bankValidationStatus?: string;
-  mpesaState?: string;
-  callbackCapability?: string;
-  pullCapability?: string;
-  c2bRegistrationState?: string;
-  pullRegistrationState?: string;
+  bankConnectionStatus?: BankConnectionStatus;
+  bankAccountConnectionStatus?: BankAccountConnectionStatus;
+  bankValidationStatus?: BankValidationStatus;
+  mpesaState?: MpesaOperationalState;
+  callbackCapability?: MpesaCapability;
+  pullCapability?: MpesaCapability;
+  c2bRegistrationState?: MpesaRegistrationState;
+  pullRegistrationState?: MpesaRegistrationState;
   isActive?: boolean;
 }
 
@@ -192,15 +192,30 @@ export interface ClientDiagnostics {
   }>;
 }
 
+export type BankConnectionStatus = 'pending' | 'active' | 'reauth_required' | 'disconnected' | 'failed';
+export type BankValidationStatus = 'pending' | 'validated' | 'failed' | 'unavailable';
+export type BankAccountConnectionStatus = 'pending' | 'connected' | 'failed';
+
 export interface BankingIntegrationFilters {
   page?: number;
   limit?: number;
   clientId?: string;
   clientIsActive?: boolean;
   provider?: string;
-  status?: string;
-  validationStatus?: string;
-  accountConnectionStatus?: string;
+  status?: BankConnectionStatus;
+  validationStatus?: BankValidationStatus;
+  accountConnectionStatus?: BankAccountConnectionStatus;
+}
+
+export interface BankingAccountRollup {
+  accountCount: number;
+  validationStatuses: Record<string, number>;
+  accountConnectionStatuses: Record<string, number>;
+  /** Number of accounts that have each capability, not booleans. */
+  capabilities: { poll: number; statement: number; balance: number; webhookIngest: number };
+  lastSyncAttemptAt: string | null;
+  lastSyncSuccessAt: string | null;
+  lastSyncErrorCategory: string | null;
 }
 
 export interface BankingIntegrationRow {
@@ -209,56 +224,52 @@ export interface BankingIntegrationRow {
   clientName?: string;
   clientIsActive?: boolean;
   provider: string;
-  displayName?: string | null;
-  status: string;
-  needsReauthorization?: boolean;
-  authEvidence?: {
-    lastAuthAt?: string | null;
-    tokenExpiresAt?: string | null;
-    lastAuthError?: string | null;
-  } | null;
-  accounts?: {
-    accountCount?: number;
-    validationStatuses?: unknown;
-    accountConnectionStatuses?: unknown;
-    capabilities?: unknown;
-    lastSyncAttemptAt?: string | null;
-    lastSyncSuccessAt?: string | null;
-    lastSyncErrorCategory?: string | null;
-  } | null;
+  displayName: string | null;
+  status: BankConnectionStatus;
+  needsReauthorization: boolean;
+  authEvidence: { lastAuthAt: string | null; tokenExpiresAt: string | null; lastAuthError: string | null };
+  accounts: BankingAccountRollup;
   createdAt?: string;
   updatedAt?: string;
 }
+
+export type MpesaOperationalState = 'DRAFT' | 'NOT_READY' | 'ACTIVE' | 'SUSPENDED';
+export type MpesaCapability = 'UNKNOWN' | 'NOT_ENABLED' | 'VERIFIED';
+export type MpesaRegistrationState = 'NONE' | 'REQUESTED' | 'ACCEPTED' | 'ALREADY_REGISTERED' | 'REJECTED' | 'UNCERTAIN';
 
 export interface MpesaIntegrationFilters {
   page?: number;
   limit?: number;
   clientId?: string;
   clientIsActive?: boolean;
-  operationalState?: string;
-  callbackCapability?: string;
-  pullCapability?: string;
-  c2bRegistrationState?: string;
-  pullRegistrationState?: string;
+  operationalState?: MpesaOperationalState;
+  callbackCapability?: MpesaCapability;
+  pullCapability?: MpesaCapability;
+  c2bRegistrationState?: MpesaRegistrationState;
+  pullRegistrationState?: MpesaRegistrationState;
 }
 
 export interface MpesaIntegrationRow {
+  id: string;
   clientId: string;
   clientName?: string;
   clientIsActive?: boolean;
-  /** UNVERIFIED naming of the merchant-profile identity block. */
-  merchantProfileId?: string;
-  displayName?: string | null;
-  merchantType?: string | null;
-  shortcode?: string | null;
-  operationalState?: string;
-  callbackCapability?: string;
-  pullCapability?: string;
-  c2bRegistrationState?: string;
-  pullRegistrationState?: string;
-  lastPullRegisteredAt?: string | null;
-  ingestionEvidence?: Record<string, unknown> | null;
-  blockers?: string[];
+  estateId: string | null;
+  displayName: string | null;
+  merchantType: string;
+  businessShortCode: string;
+  operationalState: MpesaOperationalState;
+  callbackCapability: MpesaCapability;
+  pullCapability: MpesaCapability;
+  c2bRegistrationState: MpesaRegistrationState;
+  pullRegistrationState: MpesaRegistrationState;
+  lastPullRegisteredAt: string | null;
+  /** Per source channel: last received time, last state, total. Timestamps/state only. */
+  ingestionEvidence?: Record<string, { lastReceivedAt: string; lastState: string; total: number }>;
+  /** Derived by the backend from stored states only. */
+  blockers: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface PlatformUserRow {

@@ -1,5 +1,7 @@
 'use client';
 
+import { ApiError } from '@/lib/api/client';
+
 // src/hooks/use-cached-query.ts
 //
 // Hydrate-first offline reads:
@@ -62,6 +64,18 @@ export function useCachedQuery<T>(
   useEffect(() => {
     if (query.data !== undefined) void cacheWrite(cacheKey, query.data);
   }, [cacheKey, query.data]);
+
+  // A live authorization/entitlement refusal must never be hidden behind a cached snapshot.
+  if (query.isError && query.data === undefined && query.error instanceof ApiError && (query.error.status === 401 || query.error.status === 403)) {
+    return {
+      data: undefined,
+      freshness: 'unavailable',
+      cachedAt: null,
+      isLoading: false,
+      error: query.error,
+      refetch: () => void query.refetch(),
+    };
+  }
 
   // Live data wins.
   if (query.data !== undefined) {

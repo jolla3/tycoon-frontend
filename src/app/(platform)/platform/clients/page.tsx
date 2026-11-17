@@ -9,7 +9,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { ActiveChip, ProductChips } from '@/features/platform/product-chips';
 import { TablePager } from '@/features/platform/table-pager';
-import { platformApi, type ClientListFilters, type PlatformClientRow, type PlatformPlan, type Product, type ProductFilter, type ProvisionClientInput } from '@/lib/api/platform';
+import { platformApi, type BankConnectionStatus, type ClientListFilters, type MpesaOperationalState, type PlatformClientRow, type PlatformPlan, type Product, type ProductFilter, type ProvisionClientInput } from '@/lib/api/platform';
 import { platformKeys } from '@/lib/query/keys';
 import { dateFormat } from '@/lib/dates/period';
 
@@ -107,8 +107,8 @@ export default function PlatformClientsPage() {
   const [plan, setPlan] = useState<PlatformPlan | ''>('');
   const [subscriptionStatus, setSubscriptionStatus] = useState('');
   const [hasSubscription, setHasSubscription] = useState('');
-  const [bankConnectionStatus, setBankConnectionStatus] = useState('');
-  const [mpesaState, setMpesaState] = useState('');
+  const [bankConnectionStatus, setBankConnectionStatus] = useState<BankConnectionStatus | ''>('');
+  const [mpesaState, setMpesaState] = useState<MpesaOperationalState | ''>('');
 
   const filters: ClientListFilters = {
     page,
@@ -184,13 +184,21 @@ export default function PlatformClientsPage() {
             <MenuItem value="true">Has subscription</MenuItem>
             <MenuItem value="false">Missing subscription</MenuItem>
           </Select>
-          <Select size="small" displayEmpty value={bankConnectionStatus} onChange={(e) => reset(() => setBankConnectionStatus(e.target.value))} sx={{ minWidth: 170 }} inputProps={{ 'aria-label': 'Bank connection status' }}>
+          <Select size="small" displayEmpty value={bankConnectionStatus} onChange={(e) => reset(() => setBankConnectionStatus(e.target.value as BankConnectionStatus | ''))} sx={{ minWidth: 170 }} inputProps={{ 'aria-label': 'Bank connection status' }}>
             <MenuItem value="">Bank connection: any</MenuItem>
-            <MenuItem value="ACTIVE">Active</MenuItem>
-            <MenuItem value="NEEDS_REAUTHORIZATION">Needs reauthorization</MenuItem>
-            <MenuItem value="DISCONNECTED">Disconnected</MenuItem>
+            <MenuItem value="pending">Pending</MenuItem>
+            <MenuItem value="active">Active</MenuItem>
+            <MenuItem value="reauth_required">Needs reauthorization</MenuItem>
+            <MenuItem value="failed">Failed</MenuItem>
+            <MenuItem value="disconnected">Disconnected</MenuItem>
           </Select>
-          <TextField size="small" label="M-PESA state" value={mpesaState} onChange={(e) => reset(() => setMpesaState(e.target.value.trim()))} sx={{ minWidth: 160 }} />
+          <Select size="small" displayEmpty value={mpesaState} onChange={(e) => reset(() => setMpesaState(e.target.value as MpesaOperationalState | ''))} sx={{ minWidth: 170 }} inputProps={{ 'aria-label': 'M-PESA operational state' }}>
+            <MenuItem value="">M-PESA state: any</MenuItem>
+            <MenuItem value="DRAFT">Draft</MenuItem>
+            <MenuItem value="NOT_READY">Not ready</MenuItem>
+            <MenuItem value="ACTIVE">Active</MenuItem>
+            <MenuItem value="SUSPENDED">Suspended</MenuItem>
+          </Select>
         </Stack>
       </Card>
       <Card>

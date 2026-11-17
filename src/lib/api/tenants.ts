@@ -1,5 +1,6 @@
-import { apiClient } from './client';
-import type { Tenant } from '@/types/api';
+import { apiClient, type QueryValue } from './client';
+import type { Payment, PaymentStatus, Tenant } from '@/types/api';
+import type { KnownArrears } from '@/types/financial';
 
 export interface CreateTenantInput {
   name: string;
@@ -8,6 +9,19 @@ export interface CreateTenantInput {
   moveInDate?: string;
 }
 
+/** PATCH accepts these fields only. Moving a tenant uses the dedicated move route. */
+export interface UpdateTenantInput {
+  name?: string;
+  phone?: string;
+  status?: string;
+  moveOutDate?: string;
+}
+
+export interface TenantListQuery {
+  estateId?: string;
+}
+
+/** Open-charge totals per period. Not a ledger balance. */
 export interface TenantMonthlyRow {
   period: string;
   billedCents: number;
@@ -15,19 +29,25 @@ export interface TenantMonthlyRow {
   outstandingCents: number;
 }
 
+/**
+ * `outstandingCents` mirrors `knownArrearsCents` and is null when the ledger
+ * cannot provide a figure. It is a known-arrears lower bound unless
+ * `verifiedFullObligation` is true. Render via describeKnownArrears().
+ */
+export interface TenantFinancials extends KnownArrears {
+  billedCents: number;
+  paidCents: number;
+  outstandingCents: number | null;
+  /** Open charges past their due date. Charge-based, independent of the ledger figure. */
+  overdueCents: number;
+  oldestUnpaidPeriod: string | null;
+  currentPeriod: string;
+}
+
 export interface TenantDetail extends Tenant {
   house?: { _id: string; houseNumber: string; status?: string; houseTypeId?: string } | null;
   estate?: { _id: string; name: string; address?: string } | null;
-  financials?: {
-    billedCents: number;
-    paidCents: number;
-    outstandingCents: number;
-    overdueCents?: number;
-    oldestUnpaidPeriod?: string | null;
-    currentPeriod: string;
-    /** Authoritative source: ledger | rentcharge_fallback | empty */
-    balanceSource?: string;
-  };
+  financials?: TenantFinancials;
   monthly?: TenantMonthlyRow[];
   billingHistory?: Array<{
     _id: string;
@@ -38,15 +58,8 @@ export interface TenantDetail extends Tenant {
     balanceCents: number;
     status: string;
   }>;
-  payments?: Array<{
-    _id: string;
-    amountCents: number;
-    paymentDate: string;
-    paymentReference?: string;
-    period?: string;
-    houseId?: string;
-    status?: string;
-  }>;
+  /** May include REVERSED rows. Reversed payments are not collected money. */
+  payments?: Array<Pick<Payment, '_id' | 'amountCents' | 'paymentDate' | 'paymentReference' | 'period' | 'houseId'> & { status: PaymentStatus }>;
   smsHistory?: Array<{
     _id: string;
     phoneNumber: string;
@@ -60,10 +73,10 @@ export interface TenantDetail extends Tenant {
 }
 
 export const tenantsApi = {
-  list: () => apiClient.get<Tenant[]>('/tenants'),
+  /** Unpaginated on the backend. estateId narrows server-side; a restricted user is always limited to their allowed estates. */
+  list: (query: TenantListQuery = {}) => apiClient.get<Tenant[]>('/tenants', query as Record<string, QueryValue>),
   get: (id: string) => apiClient.get<TenantDetail>(`/tenants/${id}`),
   create: (input: CreateTenantInput) => apiClient.post<Tenant>('/tenants', input),
-  update: (id: string, updates: Partial<CreateTenantInput> & { status?: string; moveOutDate?: string }) =>
-    apiClient.patch<Tenant>(`/tenants/${id}`, updates),
+  update: (id: string, updates: UpdateTenantInput) => apiClient.patch<Tenant>(`/tenants/${id}`, updates),
   move: (id: string, houseId: string) => apiClient.post<Tenant>(`/tenants/${id}/move`, { houseId }),
 };

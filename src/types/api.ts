@@ -72,17 +72,25 @@ export interface Tenant {
 
 export type RentStatus = 'PAID' | 'PARTIAL' | 'UNPAID' | 'OVERPAID';
 
+/** Where the money came from. Display only; the backend assigns it. */
+export type PaymentOrigin = 'BANK' | 'MANUAL' | 'MPESA' | 'CREDIT';
+/** REVERSED payments are retained for audit but are NOT collected money. */
+export type PaymentStatus = 'CONFIRMED' | 'REVERSED';
+
 export interface Payment {
   _id: string;
   clientId: string;
   estateId: string;
   houseId: string;
-  tenantId?: string;
+  tenantId?: string | null;
+  tenancyId?: string | null;
   bankTransactionId?: string;
   amountCents: number;
   paymentDate: string;
   paymentReference?: string;
   period: string;
+  origin: PaymentOrigin;
+  status: PaymentStatus;
 }
 
 /** Public bank account DTO from bank.service toPublicBankAccount — no ciphertext/hashes. */
@@ -91,10 +99,17 @@ export interface BankAccount {
   id: string;
   _id?: string; // legacy tolerance
   estateId: string;
-  provider: 'COOP' | 'KCB' | 'EQUITY' | 'NCBA';
+  /** Only Co-operative Bank is implemented by the backend. */
+  provider: 'COOP';
+  /** Parent BankConnection. Connection authorization and account validation are distinct states. */
+  connectionId: string;
   accountName: string;
   currency: string;
   connectionStatus: 'pending' | 'connected' | 'failed';
+  validationStatus: string;
+  lastValidatedAt?: string | null;
+  /** Which operations the backend allows for this account. Gate actions on these, not on provider name. */
+  entitlements?: { poll?: boolean; statement?: boolean; balance?: boolean; webhookIngest?: boolean };
   lastSyncedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -102,7 +117,8 @@ export interface BankAccount {
   accountNumberMasked?: string | null;
 }
 
-export type MatchStatus = 'MATCHED' | 'UNMATCHED';
+export type MatchStatus = 'MATCHED' | 'UNMATCHED' | 'PARTIAL' | 'MANUAL_REVIEW';
+export type TransactionProcessingState = 'RECEIVED' | 'CLAIMED' | 'POSTED' | 'FAILED_RETRYABLE' | 'FAILED_TERMINAL' | 'MANUAL_REVIEW';
 
 export interface BankTransaction {
   _id: string;
@@ -120,6 +136,8 @@ export interface BankTransaction {
   matchedHouseId?: string | null;
   matchedTenantId?: string | null;
   matchStatus: MatchStatus;
+  /** Ledger posting progress, separate from matching. Absent until the backend projects it. */
+  processingState?: TransactionProcessingState;
 }
 
 /**
