@@ -525,3 +525,33 @@ Verified in `transaction.service.js`: `list` and `unmatched` call `BankTransacti
 ### 18.3 Still NOT IMPLEMENTED in this branch
 
 Transactions screens (server-side estate filter, processingState chips, entitlement state), the public `/pay` page, operator M-PESA link panel and submission review queue.
+
+## 19. Implementation reconciliation
+
+Status values: IMPLEMENTED, BLOCKED BY BACKEND, NOT IMPLEMENTED. Verified with `npx tsc --noEmit`, `npx next lint`, `npm test` and `npx next build` (all run at the commit that added this section). No browser or end-to-end test was run against a live backend, so IMPLEMENTED means built and compiled, not exercised against the API.
+
+| Area | Status | Files / notes |
+|---|---|---|
+| API client, idempotency keys, public request helper | IMPLEMENTED | `lib/api/client.ts` |
+| Superadmin platform V2 (overview, clients, client detail, entitlements, banking and M-PESA monitors, health, users, subscriptions, audit) | IMPLEMENTED | `lib/api/platform/*`, `app/(platform)/platform/**`. Deviation: `/platform/clients/[clientId]` uses a Mongo ID in the URL (SUPER_ADMIN only). Client banking/M-PESA summaries, health sections and diagnostics are rendered through `EvidenceView` because their field names are not verified. |
+| Estate-scoped house types, houses, tenants (server-side filters, pagination, cache keys) | IMPLEMENTED | `house-types`, `houses`, `tenants`, `estates/workspace` pages, `lib/query/keys.ts` |
+| House type creation with `estateId` | BLOCKED BY BACKEND | Frontend sends `estateId`; the backend validation strips it. |
+| "Unclassified houses" filter | BLOCKED BY BACKEND | Cannot be done server-side; removed rather than filtered client-side. |
+| Tenancy-aware house-type, house, tenant workspaces | IMPLEMENTED | Current, earlier-tenancy, unattributed legacy, orphaned and credit shown separately. |
+| Deposits with Idempotency-Key and double-submit guard | IMPLEMENTED | `features/deposits/deposit-panel.tsx` |
+| Billing generation result (`eligibleTenancies`, `partialPeriodExcluded`) | IMPLEMENTED | `estates/workspace` Billing tab |
+| Billing plan update with effective period and change reason | BLOCKED BY BACKEND | Update schema omits those fields. |
+| Bank connection lifecycle (create, reauthorize, disconnect), account registration, sync, statement | IMPLEMENTED | `app/(dashboard)/banking/page.tsx`, `lib/api/bank-connections.ts`, `lib/api/banking.ts`. Credentials live only in dialog state and are wiped on every exit path. |
+| Transactions list and unmatched (server-side estate filter, match and processing chips, entitlement state, cache keys, assignment scoped to estate) | IMPLEMENTED | `app/(dashboard)/transactions/**`, `lib/api/transactions.ts` |
+| Safe bank transaction and bank account response DTOs | BLOCKED BY BACKEND | See 18.1. The wrapper copying only displayed fields is defense in depth, not a fix. Bank account response exposure of internal fields was not re-verified in this branch. |
+| M-PESA public page | IMPLEMENTED | `app/(public)/pay/page.tsx`, `layout.tsx`. Token read from `#t=`, held in memory, fragment removed, no referrer, noindex. 202 is shown as "received, will be checked", never as paid. |
+| M-PESA operator link panel (inspect, issue once with copy, rotate, revoke) | IMPLEMENTED | `features/mpesa/tenant-link-panel.tsx`, tenant workspace "M-PESA link" tab. Non-operational links are shown as not usable. |
+| M-PESA submission review queue (REJECT, RETRY_MATCH with reason codes) | IMPLEMENTED | `app/(dashboard)/payments/mpesa-submissions/page.tsx` |
+| M-PESA review queue for SUPER_ADMIN (explicit `clientId`) | NOT IMPLEMENTED | API wrapper supports `clientId`; no screen offers it. |
+| M-PESA transaction list/detail, merchant profile management, manual Pull | BLOCKED BY BACKEND | No endpoints exist; no UI built. |
+| Financial zero-fallback audit | IMPLEMENTED | Section 18. |
+| Customer self-service plan upgrade | IMPLEMENTED (removed) | Settings shows subscription and products read-only. |
+| Staff estate isolation on `GET /estates` | BLOCKED BY BACKEND | Frontend behaves for a restricted set but is not authorization. |
+| Password reset, notifications, settings endpoints, automatic entitlement expiry | BLOCKED BY BACKEND | Not built. |
+| Visual redesign pass beyond the screens above | NOT IMPLEMENTED | No dedicated styling pass was done. |
+| Automated tests beyond formatting helpers | NOT IMPLEMENTED | Only `financial-values.test.ts` exists. No component or end-to-end tests. |

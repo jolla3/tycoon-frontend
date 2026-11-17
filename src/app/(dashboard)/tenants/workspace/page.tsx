@@ -13,6 +13,7 @@ import { tenantsApi } from '@/lib/api/tenants';
 import { formatCents, formatMaybeCents } from '@/lib/formatting/currency';
 import { ApiError } from '@/lib/api/client';
 import { openWorkspace, readWorkspaceId } from '@/lib/navigation/workspace';
+import { TenantMpesaLinkPanel } from '@/features/mpesa/tenant-link-panel';
 import { TenantDepositPanel } from '@/features/deposits/deposit-panel';
 import { KnownArrearsCard, MetricCard } from '@/features/finance/metric-card';
 import { PaymentStatusChip } from '@/components/data-display/status-chip';
@@ -78,7 +79,7 @@ export default function TenantWorkspacePage() {
         <MetricCard label="Overdue open charges" value={formatMaybeCents(f?.overdueCents)} />
       </Stack>
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable">
-        <Tab label="Overview" /><Tab label="Monthly" /><Tab label="Billing history" /><Tab label="Payments" /><Tab label="SMS" /><Tab label="Activity" /><Tab label="Deposit" />
+        <Tab label="Overview" /><Tab label="Monthly" /><Tab label="Billing history" /><Tab label="Payments" /><Tab label="SMS" /><Tab label="Activity" /><Tab label="Deposit" /><Tab label="M-PESA link" />
       </Tabs>
       {tab === 0 && (
         <Card sx={{ p: 2 }}>
@@ -183,6 +184,7 @@ export default function TenantWorkspacePage() {
         </Card>
       )}
       {tab === 6 && <TenantDepositPanel tenantId={tenantId} />}
+      {tab === 7 && <TenantMpesaLinkPanel tenantId={tenantId} />}
     </>
   );
 }

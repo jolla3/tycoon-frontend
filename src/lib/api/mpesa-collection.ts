@@ -96,8 +96,8 @@ export const mpesaCollectionApi = {
     apiClient.get<TenantCollectionAccount>(`/mpesa-collection/tenants/${tenantId}/account`, q(scope)),
   payments: (tenantId: string, scope: Scope = {}) =>
     apiClient.get<{ payments: TenantCollectionPayment[] }>(`/mpesa-collection/tenants/${tenantId}/payments`, q(scope)),
-  listSubmissions: (query: { state?: SubmissionState; limit?: number } & Scope = {}) =>
-    apiClient.get<{ submissions: MpesaSubmission[] }>('/mpesa-collection/submissions', q(query, { state: query.state, limit: query.limit })),
+  listSubmissions: (query: { state?: SubmissionState; limit?: number; estateId?: string } & Scope = {}) =>
+    apiClient.get<{ submissions: MpesaSubmission[] }>('/mpesa-collection/submissions', q(query, { state: query.state, limit: query.limit, estateId: query.estateId })),
   resolveSubmission: (id: string, body: { action: ReviewAction; reasonCode: ReviewReasonCode }, scope: Scope = {}) =>
     apiClient.post<{ id: string; state: SubmissionState }>(`/mpesa-collection/submissions/${id}/resolve${scope.clientId ? `?clientId=${encodeURIComponent(scope.clientId)}` : ''}`, body),
 };

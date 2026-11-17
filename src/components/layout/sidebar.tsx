@@ -72,6 +72,7 @@ export function Sidebar({ open, onClose, variant }: { open: boolean; onClose: ()
         { label: 'Overview', href: '/payments', icon: Wallet },
         { label: 'Transactions', href: '/transactions', icon: ArrowLeftRight },
         { label: 'Unmatched', href: '/transactions/unmatched', icon: ArrowLeftRight },
+        ...(permissions.canManageTenants(role) ? [{ label: 'M-PESA submissions', href: '/payments/mpesa-submissions', icon: MessageSquare } satisfies NavLeaf] : []),
       ],
     },
     ...(permissions.canManageBanking(role) ? [{ label: 'Banking', href: '/banking', icon: Landmark } satisfies NavLeaf] : []),

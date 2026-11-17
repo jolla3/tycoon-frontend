@@ -20,6 +20,8 @@ import { ApiError } from '@/lib/api/client';
 import { useConnectivity } from '@/lib/sync/connectivity';
 import { useCachedQuery } from '@/hooks/use-cached-query';
 import { identityKeyFromUser } from '@/lib/session/local-session-marker';
+import { ProductEntitlementBlocked, isProductNotEntitled } from '@/components/feedback/product-entitlement-blocked';
+import { estateKeys } from '@/lib/query/keys';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import type { BankTransaction } from '@/types/api';
 
@@ -28,9 +30,18 @@ export default function UnmatchedTransactionsPage() {
   const identity = user ? identityKeyFromUser(user) : 'anon';
   const { data, isLoading, error, freshness, cachedAt } = useCachedQuery(
     `${identity}:transactions:unmatched`,
-    ['transactions', 'unmatched', identity],
+    [...estateKeys.unmatched(undefined, { identity })],
     () => transactionsApi.unmatched()
   );
+
+  if (isProductNotEntitled(error)) {
+    return (
+      <>
+        <PageHeader title="Unmatched Transactions" description="Bank credits awaiting assignment" />
+        <ProductEntitlementBlocked error={error} fallbackProduct="BANKING" />
+      </>
+    );
+  }
 
   return (
     <>
@@ -83,15 +94,14 @@ function UnmatchedTransactionCard({ transaction }: { transaction: BankTransactio
   // — never queued, never optimistically shown as successful.
   const canReachServer = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
 
-  // No estateId sent to the backend (see lib/api/houses.ts) — fetch a
-  // reasonably-sized page of houses and narrow to this transaction's
-  // estate client-side before offering them in the assignment dropdown.
+  // The house lookup is scoped to this transaction's estate on the server (max 100 per page).
   const { data: houses } = useQuery({
-    queryKey: ['houses', 'for-assignment'],
-    queryFn: () => housesApi.list({ limit: 200 }),
+    queryKey: estateKeys.houses(transaction.estateId, { purpose: 'assignment' }),
+    queryFn: () => housesApi.list({ estateId: transaction.estateId, limit: 100 }),
     enabled: canAssign,
   });
-  const housesForEstate = houses?.items.filter((h) => h.estateId === transaction.estateId) ?? [];
+  const housesForEstate = houses?.items ?? [];
+  const housesTruncated = !!houses && houses.pagination.total > houses.items.length;
 
   // Financial mutation: no retry, no optimistic "Success" before the
   // backend actually confirms it (section 20/35 of the redesign mandate —
@@ -100,7 +110,9 @@ function UnmatchedTransactionCard({ transaction }: { transaction: BankTransactio
     mutationFn: () => transactionsApi.assign(transaction._id, houseId),
     onSuccess: () => {
       setSucceeded(true);
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: estateKeys.transactionsFamily() });
+      queryClient.invalidateQueries({ queryKey: estateKeys.paymentsFamily() });
+      queryClient.invalidateQueries({ queryKey: estateKeys.housesFamily() });
       queryClient.invalidateQueries({ queryKey: ['reports'] });
     },
     onError: (err) => setErrorMessage(err instanceof ApiError ? err.message : 'Unable to assign this transaction. Nothing was changed.'),
@@ -159,6 +171,11 @@ function UnmatchedTransactionCard({ transaction }: { transaction: BankTransactio
           </Stack>
         )}
       </Stack>
+      {housesTruncated && (
+        <Alert severity="info" sx={{ mt: 1.5 }}>
+          Showing the first {housesForEstate.length} of {houses?.pagination.total} houses in this estate. Assign from the house workspace for others.
+        </Alert>
+      )}
       {!canReachServer && (
         <Alert severity="info" sx={{ mt: 1.5 }}>
           You&apos;re offline. This action requires a server connection.
