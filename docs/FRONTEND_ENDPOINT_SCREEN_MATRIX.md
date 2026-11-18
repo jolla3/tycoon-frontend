@@ -75,7 +75,7 @@ Signup is not mounted as an ordinary public route in the audited backend. Client
 | `GET /house-types` | List house types | `houseTypesApi.list` | `/house-types` | Client session | Wired |
 | `GET /house-types/:id` | Read house type | `houseTypesApi.get` | House-type workspace | Client session | Wired |
 | `GET /house-types/:id/workspace` | Tenancy-aware house-type portfolio summary | `houseTypesApi.workspace` | `/house-types/workspace` | Client session | Response DTO mismatch: page expects obsolete flat fields; backend returns current/historical/unattributed/orphaned tenancy groupings |
-| `POST /house-types` | Create estate-owned house type | `houseTypesApi.create` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Contract mismatch + backend schema defect: service requires estateId; route validation strips it and frontend does not send it |
+| `POST /house-types` | Create estate-owned house type | `houseTypesApi.create` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Contract mismatch + backend schema defect: service requires estateId; route validation strips it; the frontend does send it |
 | `PATCH /house-types/:id` | Update house type | `houseTypesApi.update` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `POST /house-types/:id/deactivate` | Deactivate house type | `houseTypesApi.deactivate` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `GET /tenants` | List tenants | `tenantsApi.list` | `/tenants` | Client session | Partial: wrapper omits selected `estateId`; UI filters the returned array locally. Restricted STAFF is still scoped by backend middleware |
@@ -496,3 +496,62 @@ After provisioning/subscription changes, invalidate client directory/detail, ent
 - No canonical MpesaTransaction list/detail, merchant-profile CRUD or manual Pull HTTP endpoint exists. Do not invent those screens/actions.
 - Platform Banking/M-PESA integration endpoints are read-only. No mutation controls belong on those monitoring pages.
 - Backend V2 implementation is present in source, but behavioural verification is pending. No frontend runtime verification is implied by this matrix.
+
+## 18. Financial-correctness audit (dashboard, reports, payments, estate/house workspaces)
+
+Rule: a missing, null or unverified financial value renders as "Not available" (`formatMaybeCents` / `formatMaybeNumber`). A backend zero renders as a real zero. No aggregate is substituted for another. Tenant arrears are shown only through `KnownArrearsCard` / `describeKnownArrears`.
+
+| Screen | Status | Change / reason |
+|---|---|---|
+| `dashboard/page.tsx` | IMPLEMENTED | KPIs use maybe-formatters. Collection rate is the backend `collectionRatePercent` only; no client recomputation. Estate chart omits slices without numeric figures. Outstanding relabelled "Open charges (period)". |
+| `dashboard/components/recent-payments-card.tsx` | IMPLEMENTED | Removed the fabricated `{0,0,0}` rent, status and houses objects. Missing sections render "Not available". |
+| `reports/page.tsx` | IMPLEMENTED | Removed `Number(... ?? 0)` and `a \|\| b \|\| 0`. Billed, collected and open charges come only from `billedVsPaid.total` and are no longer replaced by `rent.*`. Unmatched bank uses the all-time field only. Pie slices omit unknown counts. Arrears table is labelled charge-level, not ledger arrears, and not netted for tenant credit. |
+| `payments/page.tsx` | IMPLEMENTED | Origin and status chips; REVERSED rows struck through and not described as confirmed. Server-side estate filter in the cache key; house picker limited to the backend maximum of 100 with a truncation notice. |
+| `houses/page.tsx`, `house-types/page.tsx` | IMPLEMENTED | Billing-line and override amounts no longer default to zero. |
+| tenant, house, estate and house-type workspaces | IMPLEMENTED (previous commit) | Current, earlier-tenancy, unattributed legacy and credit shown separately. |
+
+Retained on purpose (not financial values): `list?.length ?? 0` for empty-state checks, `unclassifiedHouses ?? 0 > 0` as a display condition, allocation-count message text, `portfolio.x ?? houses.x` (same metric from two sections, not a zero), `Number(rentKes || 0)` form input parsing.
+
+Known limits: the dashboard and report DTO types still declare `rent`, `status` and `houses` as required, so the page handles absence defensively but the types are not narrowed to the backend. Report and dashboard figures are charge-based and are not ledger-authoritative. `/reports/payments` returns all payment statuses; no screen consumes it yet.
+
+### 18.1 BLOCKED BY BACKEND: raw BankTransaction responses
+
+Verified in `transaction.service.js`: `list` and `unmatched` call `BankTransaction.find(filter)` with no projection, and the model stores `processingClaimToken` and `rawPayload`. Both fields are therefore serialized to the browser. TypeScript interfaces cannot redact fields from an HTTP response. A safe BankTransaction DTO is an unresolved backend security prerequisite. Safe bank-transaction responses are NOT complete. The frontend wrapper declares only the fields it displays, which does not mitigate the exposure.
+
+### 18.2 Verification commands
+
+`npx tsc --noEmit`, `npx next lint` and `npm test` (vitest, `src/lib/formatting/financial-values.test.ts`: unknown, null, verified zero, unverified zero, positive). `next build` was not run in this milestone.
+
+### 18.3 Still NOT IMPLEMENTED in this branch
+
+Transactions screens (server-side estate filter, processingState chips, entitlement state), the public `/pay` page, operator M-PESA link panel and submission review queue.
+
+## 19. Implementation reconciliation
+
+Status values: IMPLEMENTED, BLOCKED BY BACKEND, NOT IMPLEMENTED. Verified with `npx tsc --noEmit`, `npx next lint`, `npm test` and `npx next build` (all run at the commit that added this section). No browser or end-to-end test was run against a live backend, so IMPLEMENTED means built and compiled, not exercised against the API.
+
+| Area | Status | Files / notes |
+|---|---|---|
+| API client, idempotency keys, public request helper | IMPLEMENTED | `lib/api/client.ts` |
+| Superadmin platform V2 (overview, clients, client detail, entitlements, banking and M-PESA monitors, health, users, subscriptions, audit) | IMPLEMENTED | `lib/api/platform/*`, `app/(platform)/platform/**`. Deviation: `/platform/clients/[clientId]` uses a Mongo ID in the URL (SUPER_ADMIN only). Client banking/M-PESA summaries, health sections and diagnostics are rendered through `EvidenceView` because their field names are not verified. |
+| Estate-scoped house types, houses, tenants (server-side filters, pagination, cache keys) | IMPLEMENTED | `house-types`, `houses`, `tenants`, `estates/workspace` pages, `lib/query/keys.ts` |
+| House type creation with `estateId` | BLOCKED BY BACKEND | Frontend sends `estateId`; the backend validation strips it. |
+| "Unclassified houses" filter | BLOCKED BY BACKEND | Cannot be done server-side; removed rather than filtered client-side. |
+| Tenancy-aware house-type, house, tenant workspaces | IMPLEMENTED | Current, earlier-tenancy, unattributed legacy, orphaned and credit shown separately. |
+| Deposits with Idempotency-Key and double-submit guard | IMPLEMENTED | `features/deposits/deposit-panel.tsx` |
+| Billing generation result (`eligibleTenancies`, `partialPeriodExcluded`) | IMPLEMENTED | `estates/workspace` Billing tab |
+| Billing plan update with effective period and change reason | BLOCKED BY BACKEND | Update schema omits those fields. |
+| Bank connection lifecycle (create, reauthorize, disconnect), account registration, sync, statement | IMPLEMENTED | `app/(dashboard)/banking/page.tsx`, `lib/api/bank-connections.ts`, `lib/api/banking.ts`. Credentials live only in dialog state and are wiped on every exit path. |
+| Transactions list and unmatched (server-side estate filter, match and processing chips, entitlement state, cache keys, assignment scoped to estate) | IMPLEMENTED | `app/(dashboard)/transactions/**`, `lib/api/transactions.ts` |
+| Safe bank transaction and bank account response DTOs | BLOCKED BY BACKEND | See 18.1. The wrapper copying only displayed fields is defense in depth, not a fix. Bank account response exposure of internal fields was not re-verified in this branch. |
+| M-PESA public page | IMPLEMENTED | `app/(public)/pay/page.tsx`, `layout.tsx`. Token read from `#t=`, held in memory, fragment removed, no referrer, noindex. 202 is shown as "received, will be checked", never as paid. |
+| M-PESA operator link panel (inspect, issue once with copy, rotate, revoke) | IMPLEMENTED | `features/mpesa/tenant-link-panel.tsx`, tenant workspace "M-PESA link" tab. Non-operational links are shown as not usable. |
+| M-PESA submission review queue (REJECT, RETRY_MATCH with reason codes) | IMPLEMENTED | `app/(dashboard)/payments/mpesa-submissions/page.tsx` |
+| M-PESA review queue for SUPER_ADMIN (explicit `clientId`) | NOT IMPLEMENTED | API wrapper supports `clientId`; no screen offers it. |
+| M-PESA transaction list/detail, merchant profile management, manual Pull | BLOCKED BY BACKEND | No endpoints exist; no UI built. |
+| Financial zero-fallback audit | IMPLEMENTED | Section 18. |
+| Customer self-service plan upgrade | IMPLEMENTED (removed) | Settings shows subscription and products read-only. |
+| Staff estate isolation on `GET /estates` | BLOCKED BY BACKEND | Frontend behaves for a restricted set but is not authorization. |
+| Password reset, notifications, settings endpoints, automatic entitlement expiry | BLOCKED BY BACKEND | Not built. |
+| Visual redesign pass beyond the screens above | NOT IMPLEMENTED | No dedicated styling pass was done. |
+| Automated tests beyond formatting helpers | NOT IMPLEMENTED | Only `financial-values.test.ts` exists. No component or end-to-end tests. |

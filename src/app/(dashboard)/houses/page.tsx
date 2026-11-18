@@ -30,7 +30,7 @@ import { useCachedQuery } from '@/hooks/use-cached-query';
 import { houseTypesApi } from '@/lib/api/house-types';
 import { estateKeys } from '@/lib/query/keys';
 import { housesApi, type ChargeType } from '@/lib/api/houses';
-import { formatAmount } from '@/lib/formatting/currency';
+import { formatAmount, formatMaybeCents } from '@/lib/formatting/currency';
 import { useVisibleEstates } from '@/features/estates/use-visible-estates';
 import { useSession } from '@/features/auth/session-context';
 import { permissions } from '@/lib/permissions/permissions';
@@ -420,7 +420,7 @@ function CreateHouseDialog({
                 .filter((l) => l.chargeType !== 'RENT')
                 .map((l, i) => (
                   <Typography key={i} variant="body2">
-                    {l.description || l.chargeType}: KES {((l.amountCents ?? 0) / 100).toLocaleString()}/month
+                    {l.description || l.chargeType}: {formatMaybeCents(l.amountCents)}/month
                   </Typography>
                 ))}
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
