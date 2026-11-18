@@ -281,3 +281,19 @@ Distinguish three states: no Subscription (`present:false`, `SUBSCRIPTION_MISSIN
 - No MongoDB binary or container was obtainable (download hosts blocked; a conda bootstrap was refused by the environment's safety classifier and was not worked around). DB-backed backend integration tests (`describeWithMongo`) skip without `MONGODB_URI` + `TYCOON_ALLOW_DESTRUCTIVE_TEST_DB=1` + a `tycoon_test_*` replica-set database. They can be written but not executed here.
 - Frontend has a single existing test file (`lib/formatting/financial-values.test.ts`); new vitest tests are needed for every UI correction.
 - Push to both repos was authorized for this session after the repositories were attached; verified with `git push --dry-run` only.
+
+### A5. Implementation status (2026-11-19)
+
+| Item | Where | Status |
+|---|---|---|
+| HouseType create `estateId` | Backend `fix/frontend-contract-p0` `5e924d9` | Implemented; 5 zod unit tests pass. Service-level foreign-estate test not written (needs DB). Not merged/deployed. |
+| Safe BankTransaction DTO | Backend `fc703d2` | Implemented for list, unmatched, assign; 4 unit tests pass (JSON of a Mongoose doc has no internal field). Route-level HTTP test not run. Not merged/deployed. |
+| Manual payment tenancy | Backend `2c44caa`; frontend `75bd69a` | Implemented. 12 unit tests pass (resolver + schemas). 9 DB integration tests written, **not executed** (no MongoDB here). Not merged/deployed. |
+| Superadmin DTO alignment | Frontend `d7e0abf` | Implemented; typecheck/lint/build pass; 5 unit tests on subscription states. No browser check. |
+| Entitlement UX | Existing | `ProductEntitlementBlocked` handling in transactions/unmatched preserved; diagnostics now shows per-product reason. No change to BANKING/MPESA gates. |
+
+New backend surface (not previously existing): `GET /payments/manual-options?houseId&period` (CLIENT_OWNER/CLIENT_ADMIN). Changed behaviour: `POST /payments` now requires a tenancy that fully covers the period; a duplicate `paymentReference` per client is idempotent only when all details match, otherwise 409; `tenantId`/`houseId` must be 24-hex ids; invalid `paymentDate` is rejected.
+
+Known limits: historic-period charges are generated from the house's current billing plan (same as before); partial-period billing remains blocked; manual posting still needs the G3.3 unique index to exist in the target database (503 otherwise); the frontend dialog is unusable against a backend without `manual-options`.
+
+Backend unit suite on the branch: 6 suites fail identically on the base commit because required environment variables (e.g. `COOKIE_SECRET`) are absent here; no new failures.
