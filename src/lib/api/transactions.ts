@@ -3,9 +3,11 @@
 // estateId is accepted by clientContext and enforced server-side (a restricted
 // user's allowed set always applies). It is part of every query key.
 //
-// BACKEND PREREQUISITE: list/unmatched currently return raw BankTransaction
-// documents. The browser type below models only the safe fields; the backend
-// must project a DTO that omits processingClaimToken and rawPayload.
+// BACKEND: backend main @ db7af3d returns raw BankTransaction documents. The
+// allowlisted DTO is implemented on backend branch fix/frontend-contract-p0
+// (2c44caa, not merged or deployed). Until that is deployed the wire response
+// may still carry processingClaimToken and rawPayload; toSafe() below is defence
+// in depth only.
 import { apiClient, type QueryValue } from './client';
 import type { BankTransaction, MatchStatus, Paginated } from '@/types/api';
 
