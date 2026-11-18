@@ -8,6 +8,28 @@ export interface ManualPaymentInput {
   paymentReference?: string;
   period?: string;
   tenantId?: string;
+  /** Validated server-side against client/estate/house/tenant/period. */
+  tenancyId?: string;
+}
+
+/** One selectable tenancy. `tenancyId` is a value only; show tenantName and dates. */
+export interface TenancyOption {
+  tenancyId: string;
+  tenantName: string;
+  startAt: string;
+  endAt: string | null;
+  status: 'ACTIVE' | 'CLOSED';
+  coversPeriod: boolean;
+  reason: string | null;
+}
+
+/** GET /payments/manual-options */
+export interface ManualPaymentOptions {
+  houseId: string;
+  period: string;
+  resolution: 'UNIQUE' | 'AMBIGUOUS' | 'NONE';
+  defaultTenancyId: string | null;
+  options: TenancyOption[];
 }
 
 export interface ManualPaymentResult {
@@ -19,10 +41,15 @@ export interface ManualPaymentResult {
     period: string;
   }>;
   reused?: boolean;
+  tenancyId?: string | null;
+  unappliedCents?: number;
+  remainingBalanceCents?: number | null;
 }
 
 export const paymentsApi = {
   list: (query: { page?: number; limit?: number; houseId?: string; tenantId?: string; estateId?: string } = {}) =>
     apiClient.get<Paginated<Payment>>('/payments', query as Record<string, QueryValue>),
+  manualOptions: (query: { houseId: string; period?: string }) =>
+    apiClient.get<ManualPaymentOptions>('/payments/manual-options', query as Record<string, QueryValue>),
   create: (input: ManualPaymentInput) => apiClient.post<ManualPaymentResult>('/payments', input),
 };
