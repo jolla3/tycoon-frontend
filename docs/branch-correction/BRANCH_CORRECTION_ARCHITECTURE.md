@@ -173,3 +173,23 @@ Frontend tests: request payloads, DTO fixtures, 403 handling, query invalidation
 Browser acceptance: entitled/non-entitled BANKING and MPESA clients, posted Payments and standard SMS without Banking, HouseType creation, current/historic/ambiguous manual payments, safe transaction JSON, Superadmin missing/present subscriptions and public M-PESA lifecycle.
 
 A source/documentation audit is not a successful runtime test. Record exact frontend/backend SHAs and actual commands/results.
+
+---
+
+## Addendum — verification pass 2026-11-18 (pre-implementation gate)
+
+> Frontend inspected: `docs/frontend-planning-baseline` @ `692c8eb46e65b4678e50c14edb6620a6022fa0fd` (clean tree; ahead of the `db4b133` cited above only by the docs commit).  
+> Backend inspected: `main` @ `db7af3d49e827ede7f2cb9a7dbd88574c69224d9` (clean; still the HEAD when re-verified).  
+> Method: source reading of both repos. No MongoDB, deployed API or browser was available, so nothing below is runtime-proven; every item says what kind of evidence backs it.
+
+### A1. Contract corrections (supersede §5.1–5.3 wording where they differ)
+
+- **HouseType create:** the frontend DOES send `estateId`; the backend `createSchema` omits it and `validate()` strips unknown keys. Fix is backend-side. The earlier root-doc claim that the UI omits `estateId` is wrong.
+- **Manual payment:** besides the missing `tenancyId` in the schema, `recordManual` attributes allocation/`Payment.tenancyId` to the current tenancy and posts the ledger entry without `tenancyId` (see Audit A2). Target design: resolver → one validated tenancy → `ensureChargesForTenancy` + `accountingPostingService.postConfirmedPayment` in one Mongo transaction.
+- **Resolver contract (proposed backend addition):** input `{clientId, estateFilter, houseId, period, tenancyId?}`; output `{status: 'UNIQUE'|'AMBIGUOUS'|'NONE', tenancy?, options:[{tenancyId, tenantName, startAt, endAt, status, coversPeriod, reason?}]}`. Eligibility reuses `utils/tenancyEligibility.isTenancyEligibleForPeriod`; scope checks match client/estate/house/tenant.
+- **BankTransaction DTO allowlist (proposed):** `_id, estateId, houseId, tenantId, amountCents/amount, currency, transactionDate, reference, narration, direction, status/match state, assignment summary, createdAt`. Excluded: `rawPayload`, `processingClaimToken`, `processingClaimExpiresAt`, `processingAttempts`, `lastProcessingError`, fencing/lease fields, credential refs. Exact included names are finalized against the model when implemented.
+- **Superadmin DTO:** see Audit A3. Frontend types become explicit interfaces; no generic JSON renderer for the corrected sections.
+- **Entitlement:** product gate = Client active + `Subscription.products` contains product; plan/status/dates are ignored and there is no auto-expiry. Banking and M-PESA are separate gates; Payments and standard SMS are not gated by Banking. Entitlement is not integration readiness.
+
+### A2. Secrets boundary (unchanged, restated)
+Provider secrets are AES-256-GCM `BankCredential` records bound by AAD to ref/owner/version; SMS provider credentials come from server environment. The browser must never receive plaintext, ciphertext, credential refs or provider tokens.

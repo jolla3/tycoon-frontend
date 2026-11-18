@@ -75,7 +75,7 @@ Signup is not mounted as an ordinary public route in the audited backend. Client
 | `GET /house-types` | List house types | `houseTypesApi.list` | `/house-types` | Client session | Wired |
 | `GET /house-types/:id` | Read house type | `houseTypesApi.get` | House-type workspace | Client session | Wired |
 | `GET /house-types/:id/workspace` | Tenancy-aware house-type portfolio summary | `houseTypesApi.workspace` | `/house-types/workspace` | Client session | Response DTO mismatch: page expects obsolete flat fields; backend returns current/historical/unattributed/orphaned tenancy groupings |
-| `POST /house-types` | Create estate-owned house type | `houseTypesApi.create` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Contract mismatch + backend schema defect: service requires estateId; route validation strips it and frontend does not send it |
+| `POST /house-types` | Create estate-owned house type | `houseTypesApi.create` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Contract mismatch + backend schema defect: service requires estateId; route validation strips it; the frontend does send it |
 | `PATCH /house-types/:id` | Update house type | `houseTypesApi.update` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `POST /house-types/:id/deactivate` | Deactivate house type | `houseTypesApi.deactivate` | `/house-types` | CLIENT_OWNER / CLIENT_ADMIN | Wired |
 | `GET /tenants` | List tenants | `tenantsApi.list` | `/tenants` | Client session | Partial: wrapper omits selected `estateId`; UI filters the returned array locally. Restricted STAFF is still scoped by backend middleware |

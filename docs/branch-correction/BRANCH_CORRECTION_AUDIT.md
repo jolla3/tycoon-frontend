@@ -228,3 +228,56 @@ Backend main:
 - Platform integrations: https://github.com/jolla3/tycoon-estates-backend/blob/main/src/services/platformIntegrations.service.js
 - Bank secrets manager: https://github.com/jolla3/tycoon-estates-backend/blob/main/src/services/banking/secretsManager.js
 - SMS provider factory: https://github.com/jolla3/tycoon-estates-backend/blob/main/src/services/sms/sms.factory.js
+
+---
+
+## Addendum — verification pass 2026-11-18 (pre-implementation gate)
+
+> Frontend inspected: `docs/frontend-planning-baseline` @ `692c8eb46e65b4678e50c14edb6620a6022fa0fd` (clean tree; ahead of the `db4b133` cited above only by the docs commit).  
+> Backend inspected: `main` @ `db7af3d49e827ede7f2cb9a7dbd88574c69224d9` (clean; still the HEAD when re-verified).  
+> Method: source reading of both repos. No MongoDB, deployed API or browser was available, so nothing below is runtime-proven; every item says what kind of evidence backs it.
+
+### A1. Evidence table
+
+| Finding | Frontend evidence | Backend evidence | Conclusion |
+|---|---|---|---|
+| HouseType create drops `estateId` | `house-types/page.tsx` builds `{estateId: formEstateId, ...}`; `CreateHouseTypeInput` has `estateId` | `houseType.routes.js` `createSchema` has no `estateId`; `validate()` replaces `req.body` with the parsed result, stripping unknown keys; `houseType.service.create` throws when `data.estateId` is missing | CONFIRMED backend defect (source). Frontend is correct. |
+| Manual payment has no tenancy identity | `payments.ts` `ManualPaymentInput` and `RecordPaymentDialog` send `{houseId, amountCents, paymentReference}`; no period, no tenancy | `manualPaymentSchema` has no `tenancyId`; `payment.service.recordManual` is a legacy path (see A2) | CONFIRMED larger than previously documented. |
+| BankTransaction raw docs | `transactions.ts` `toSafe()` copies a field subset (defence in depth only, not a control) | `transaction.service` `list`/`unmatched`/`assignToHouse` return Mongoose documents; model carries `processingClaimToken`, `rawPayload`, etc. | CONFIRMED at source; no live response captured. |
+| Superadmin client detail DTO mismatch | `[clientId]/page.tsx`, `platform/types.ts` | `platform.service.getClient`, `platformIntegrations.service` | CONFIRMED (A3). |
+| Subscription states conflated | `ProductChips` has the three states, but callers pass wrong flags (A3) | `getClient` returns `subscription: {present:false}` for none | CONFIRMED UI defect. |
+| Entitlement rule | `isProductNotEntitled` + `ProductEntitlementBlocked` used in unmatched page | `requireProduct` + `entitlement.service`: Client active AND `Subscription.products` contains product; reasons `SUBSCRIPTION_MISSING` / `PRODUCT_NOT_ASSIGNED`; 403 `PRODUCT_NOT_ENTITLED` with `details:{product,reason}` | Rule confirmed; frontend handling exists and must be preserved. |
+
+### A2. Manual payment: what the source actually does (supersedes the P0 description above where they differ)
+
+`payment.service.recordManual` (backend main) is not the hardened posting path:
+
+1. Tenant defaults to `house.tenantId` (the CURRENT tenant), regardless of period.
+2. `ensureChargesForHouse` is called without `tenancyId`; when no unique tenancy covers the period it throws “No unique tenancy for house/period; supply tenancyId explicitly”. A mid-period move-in is a likely trigger (full-period eligibility requires `startAt <= periodStart` and `endAt` null or `>= nextPeriodStart`). Not reproduced at runtime.
+3. Allocation and `Payment.tenancyId` use `getActiveForHouse` (the CURRENT tenancy), not the tenancy that owns the charges.
+4. The ledger PAYMENT entry is posted without `tenancyId`; `ledger.service.postEntry` requires `tenancyId` for RENT PAYMENT/CHARGE. Per source reading this fails closed rather than posting.
+5. Idempotency is a soft house+reference+amount check.
+
+The canonical, hardened writer is `accountingPostingService.postConfirmedPayment` (tenancy lock, allocation revision CAS, idempotency; used by reconciliation `applyPayment` and `transaction.assignToHouse`). Correction = make `recordManual` resolve one validated tenancy and delegate to it, not duplicate its logic.
+Deployment dependency: manual-reference idempotency relies on the G3.3 unique index `uniq_client_manual_payment_reference` (verifier: `utils/manualPaymentIndexReadiness.js`); without it posting returns 503. Index presence is not verified here.
+
+Case matrix required for tests: unique current; unique historic; multiple eligible; none; tenancy on another house; tenancy on another client; tenant/tenancy mismatch; period not fully covered; duplicate reference.
+Open owner-policy question: partial-period (mid-month move-in/out) billing remains blocked; the UI must explain this and must not invent proration.
+
+### A3. Superadmin DTO mismatches (verified against source)
+
+| UI/type assumption | Backend shape |
+|---|---|
+| `if (!sub)` means no subscription | `subscription` is `{present:false}` when none; truthy object either way |
+| `mpesaProfiles`, `bankingSummary` top-level | nested `mpesa.profiles`, `banking` |
+| audit row `userId` / `_id` | `actor` (safe subset) |
+| flattened `lastOutcome` fields | nested `lastOutcome` |
+| `operationalAccess` flat | `operationalAccess.entitlement` |
+
+Distinguish three states: no Subscription (`present:false`, `SUBSCRIPTION_MISSING`); Subscription with `products: []` (`PRODUCT_NOT_ASSIGNED`); Subscription with BANKING and/or MPESA. Never auto-grant or create a subscription from the UI; the PATCH route updates an existing subscription only.
+
+### A4. Verification constraints of this pass
+
+- No MongoDB binary or container was obtainable (download hosts blocked; a conda bootstrap was refused by the environment's safety classifier and was not worked around). DB-backed backend integration tests (`describeWithMongo`) skip without `MONGODB_URI` + `TYCOON_ALLOW_DESTRUCTIVE_TEST_DB=1` + a `tycoon_test_*` replica-set database. They can be written but not executed here.
+- Frontend has a single existing test file (`lib/formatting/financial-values.test.ts`); new vitest tests are needed for every UI correction.
+- Push to both repos was authorized for this session after the repositories were attached; verified with `git push --dry-run` only.

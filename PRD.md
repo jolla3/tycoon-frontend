@@ -5,6 +5,9 @@
 > Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
 > Documentation branch: `docs/frontend-planning-baseline`  
 > Backend contract baseline: `jolla3/tycoon-estates-backend` `feat/superadmin-subscription-entitlements` @ `cc98900ba338f5b1e19bdcfe923e4dc45bc87745`  
+
+
+> **Correction note (2026-11-18):** the backend contract baseline above was a feature branch. The authoritative backend is `main` @ `db7af3d49e827ede7f2cb9a7dbd88574c69224d9`. Where this document and `docs/branch-correction/*` differ (HouseType `estateId` direction, manual-payment tenancy identity, Superadmin response shapes, subscription presence), the branch-correction pack and backend source win. Historical text below is preserved.
 > Backend status: platform and entitlement changes are implemented in source; behavioural verification is pending.  
 > Scope: frontend product and integration planning only. This document does not claim that the current screens have passed runtime acceptance.
 
@@ -115,7 +118,7 @@ The UI must preserve these domain distinctions:
 | Public landing and login | Product entry and cookie-session login | Present |
 | Dashboard | Portfolio and financial summary, current alerts and recent payments | Present |
 | Estates | List, create/update, workspace metrics | Present |
-| House types | Estate-owned list, create/update/deactivate, tenancy-aware workspace | Present but creation contract is broken: UI omits required estateId and backend create validation strips it; workspace DTO/UI are stale |
+| House types | Estate-owned list, create/update/deactivate, tenancy-aware workspace | Present but creation contract is broken: the UI sends estateId, but the backend create validator strips it (backend fix required); workspace DTO/UI are stale |
 | Houses | List, create/update, detail/workspace, billing configuration | Present; billing-config deactivate wrapper has a path mismatch |
 | Tenants | List, create/update/move, tenant workspace, deposits | Present; no M-PESA link controls |
 | Billing | Generate period charges and inspect house account | Generation is already wired from Estate Workspace → Billing tab; response type is incomplete and house-account rendering/types are stale |
@@ -257,7 +260,7 @@ This section records field-level findings from the checked source revisions and 
 |---|---|---|
 | BankConnection create | POST /bank/connections requires provider and credentialMaterial object; displayName optional | No wrapper/UI. Add separate BankConnection API and lifecycle before account registration |
 | BankAccount create | POST /bank/accounts requires estateId, connectionId, provider, accountNumber, accountName; currency and allowEstateReassignment optional | Current input omits connectionId; select a valid active connection first |
-| HouseType create | Service requires estateId; route createSchema omits it and validation strips it | Add estateId to backend schema and require estate selection/context in frontend |
+| HouseType create | Service requires estateId; route createSchema omits it and validation strips it | Add estateId to backend schema; the frontend already requires an estate selection and sends it |
 | HouseType plan update | Service supports effectiveFromPeriod/changeReason; current update schema omits them | Align backend validation and frontend versioned-plan form |
 | Billing config deactivate | URL requires configId | Wrapper uses chargeType; pass selected config _id |
 | Deposit pay/deduct | Both require Idempotency-Key header; route validation strips body extras | Wrappers send no header and API client has no typed header option; add stable per-intent key support |

@@ -119,3 +119,36 @@ Do not replace root PRD/architecture, merge the frontend branch, touch unrelated
 7. Reproduce dashboard and responsive reports; fix demonstrated failures only.
 8. Investigate Investor/bank access after reproducible evidence and approved policy.
 9. Run backend, frontend and browser acceptance; record SHAs, commands and actual results.
+
+---
+
+## Addendum — verification pass 2026-11-18 (pre-implementation gate)
+
+> Frontend inspected: `docs/frontend-planning-baseline` @ `692c8eb46e65b4678e50c14edb6620a6022fa0fd` (clean tree; ahead of the `db4b133` cited above only by the docs commit).  
+> Backend inspected: `main` @ `db7af3d49e827ede7f2cb9a7dbd88574c69224d9` (clean; still the HEAD when re-verified).  
+> Method: source reading of both repos. No MongoDB, deployed API or browser was available, so nothing below is runtime-proven; every item says what kind of evidence backs it.
+
+### A1. Implementation slices (each ends with tests that prove it)
+
+1. **Backend P0-A HouseType `estateId`** — add a validated `estateId` (24-hex ObjectId) to `createSchema` only (update remains non-movable). Proof: zod unit tests (retained, malformed rejected, update cannot move estate); service tests for foreign-client estate (DB, not runnable here).
+2. **Backend P0-B Manual payment tenancy** — shared tenancy resolver (UNIQUE / AMBIGUOUS / NONE with human-readable options and `coversPeriod`), optional `tenancyId` + required/derived `period`, `recordManual` delegating to `postConfirmedPayment` in one transaction; options endpoint for the dialog. Proof: resolver unit tests with fakes; DB integration tests for the case matrix (written, not runnable here).
+3. **Backend P0-C BankTransaction DTO** — allowlist serializer applied to list, unmatched and assign responses. Proof: unit test that JSON output contains no excluded key even when the source document has them.
+4. **Frontend P0-B dialog** — period + tenancy choice using the options endpoint; never a Mongo ID; fails closed on ambiguity.
+5. **Frontend P1 Superadmin alignment** — explicit interfaces and `present` discriminator, `mpesa.profiles`, `actor`, nested `lastOutcome`, `operationalAccess.entitlement`; tests for present/missing/empty-products.
+6. **Frontend P1 entitlement UX** — keep separate BANKING/MPESA gates; Payments and standard SMS never gated on Banking.
+
+Backend work goes on a dedicated branch from `main` (never committed to `main`); the exact SHA and files are published before the frontend is aligned. Documentation is committed before any code.
+
+### A2. Plan challenge (answers to the review questions)
+
+- House vs Tenant vs Tenancy: a house is not proof of who owed rent in a past period; only a validated Tenancy (client/estate/house/tenant/period) is. The plan never infers the tenant from `house.tenantId` for a period.
+- Wrong-tenant attribution: prevented by using one validated tenancy for charges, `Payment.tenancyId`, allocations and ledger.
+- Internal field leaks: fixed server-side with an allowlist; frontend `toSafe()` stays as defence in depth only.
+- Evidence vs bank transaction vs payment: unchanged; a BankTransaction is a reconciliation source, SMS submissions are evidence, `Payment` is posted money.
+- Assumed endpoints: the tenancy-options endpoint does not exist today; it is a proposed backend addition, not a frontend assumption. If it is not accepted, the frontend falls back to requiring the house's period resolution to be unique and shows the backend error.
+- Over-engineering: no new ledger writer, no proration, no receipt inbox, no new credential store in this pass.
+- Regressions to guard: pay page fragment-token handling, tenant link panel, submissions review (REJECT/RETRY_MATCH only), estate filtering and entitlement handling in transactions/unmatched.
+- Risks: financial (mis-attribution; fail closed), security (secret/field leaks; browser never gets secrets), data integrity (G3.3 index dependency; transactions require a replica set).
+
+### A3. Documented-only areas (not implemented in this pass)
+Superadmin credential management (needs a backend design: client-scoped, encrypted, write-only, masked, audited, rotatable, revocable); secure owner invite instead of Superadmin-chosen password; impersonation (diagnostics is not impersonation); dashboard Overview/toolbar defect (needs reproduction with deployed commit, console and network evidence); responsive audit at 320/360/390/768/1024/1440 px; Investor/bank-view conflict (unverified; no Investor model exists).
