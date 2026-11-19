@@ -18,6 +18,8 @@ import { ActiveChip, ProductChips } from '@/features/platform/product-chips';
 import { platformApi, type PlatformClientDetail, type PlatformPlan, type Product, type UpdateClientSubscriptionInput } from '@/lib/api/platform';
 import { platformKeys } from '@/lib/query/keys';
 import { dateFormat } from '@/lib/dates/period';
+import { BankingSetupPanel } from '@/features/banking/banking-setup-panel';
+import { ClientMpesaProfileCreate } from '@/features/platform/client-mpesa-profile-create';
 
 const TABS = ['Overview', 'Products & Subscription', 'Integrations', 'Diagnostics', 'Activity'] as const;
 
@@ -178,7 +180,7 @@ function IntegrationsTab({ client }: { client: PlatformClientDetail }) {
   const when = (d: string | null) => (d ? dateFormat(d, 'DD MMM YYYY HH:mm') : 'never');
   return (
     <Stack spacing={2}>
-      <Alert severity="info">Stored evidence only. These records are read-only here and are separate from product entitlement.</Alert>
+      <Alert severity="info">Manage this client's integration records here. Product entitlement and provider readiness remain separate checks.</Alert>
       <Card sx={{ p: 2.5 }}>
         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>Banking</Typography>
         <Stack spacing={0.5}>
@@ -192,8 +194,12 @@ function IntegrationsTab({ client }: { client: PlatformClientDetail }) {
           <Typography variant="body2"><strong>Last sync attempt:</strong> {when(banking.lastSyncAttemptAt)} · <strong>last success:</strong> {when(banking.lastSyncSuccessAt)}</Typography>
         </Stack>
       </Card>
+      <BankingSetupPanel clientId={client._id} canManage />
       <Card sx={{ p: 2.5 }}>
-        <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>M-PESA</Typography>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
+          <Typography variant="subtitle1" fontWeight={600}>M-PESA</Typography>
+          <ClientMpesaProfileCreate clientId={client._id} />
+        </Stack>
         <Stack spacing={0.5}>
           <Typography variant="body2"><strong>Profiles:</strong> {mpesa.profileCount}</Typography>
           <CountMap label="Operational state" counts={mpesa.operationalStates} />

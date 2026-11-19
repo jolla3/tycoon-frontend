@@ -29,7 +29,7 @@ export default function PlatformHealthPage() {
       {isLoading ? (
         <Grid container spacing={2}>
           {[1, 2, 3, 4].map((i) => (
-            <Grid item xs={12} md={6} key={i}>
+            <Grid item xs={12} lg={6} key={i}>
               <Skeleton variant="rounded" height={140} />
             </Grid>
           ))}
@@ -44,7 +44,7 @@ export default function PlatformHealthPage() {
               const section = data[key];
               if (section === undefined) return null;
               return (
-                <Grid item xs={12} md={6} key={key}>
+                <Grid item xs={12} lg={6} key={key}>
                   <Card sx={{ p: 2.5, height: '100%' }}>
                     <Typography variant="subtitle1" fontWeight={600}>
                       {title}

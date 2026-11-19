@@ -81,6 +81,14 @@ export interface ClientBankingSummary {
 }
 
 /** Safe M-PESA merchant profile (no credentials, no tokens). */
+export interface CreateMpesaProfileInput {
+  displayName?: string;
+  /** Client's Buy Goods Till / shortcode, not Tycoon's platform Daraja credentials. */
+  businessShortCode: string;
+  /** Current G5 posting model maps a Till profile to one estate. */
+  estateId: string;
+}
+
 export interface ClientMpesaProfile {
   id: string;
   clientId: string;

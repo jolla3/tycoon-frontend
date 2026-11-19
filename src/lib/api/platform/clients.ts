@@ -8,6 +8,8 @@ import type {
   ProvisionClientInput,
   ProvisionClientResult,
   UpdateClientSubscriptionInput,
+  CreateMpesaProfileInput,
+  ClientMpesaProfile,
 } from './types';
 
 export const clientsApi = {
@@ -22,4 +24,6 @@ export const clientsApi = {
   /** Updates an EXISTING subscription only; the backend cannot create a missing one. */
   updateSubscription: (clientId: string, updates: UpdateClientSubscriptionInput) =>
     apiClient.patch<PlatformSubscription>(`/platform/clients/${clientId}/subscription`, updates),
+  createMpesaProfile: (clientId: string, input: CreateMpesaProfileInput) =>
+    apiClient.post<ClientMpesaProfile>(`/platform/clients/${clientId}/mpesa-profiles`, input),
 };

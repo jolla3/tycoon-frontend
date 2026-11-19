@@ -15,10 +15,10 @@ function label(key: string): string {
 function Scalar({ value }: { value: unknown }) {
   if (value === null || value === undefined || value === '') return <Typography variant="body2" color="text.secondary">Not reported</Typography>;
   if (typeof value === 'boolean') return <Chip size="small" variant="outlined" color={value ? 'success' : 'default'} label={value ? 'Yes' : 'No'} />;
-  if (typeof value === 'number') return <Typography variant="body2">{value.toLocaleString('en-KE')}</Typography>;
+  if (typeof value === 'number') return <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>{value.toLocaleString('en-KE')}</Typography>;
   const s = String(value);
   if (ISO.test(s)) return <Typography variant="body2">{dateFormat(s, 'DD MMM YYYY HH:mm')}</Typography>;
-  return <Typography variant="body2">{s}</Typography>;
+  return <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{s}</Typography>;
 }
 
 export function EvidenceView({ data, depth = 0 }: { data: unknown; depth?: number }) {
@@ -48,13 +48,13 @@ export function EvidenceView({ data, depth = 0 }: { data: unknown; depth?: numbe
     const entries = Object.entries(data as Record<string, unknown>).filter(([k]) => !HIDDEN_KEY.test(k));
     if (entries.length === 0) return <Typography variant="body2" color="text.secondary">No data reported</Typography>;
     return (
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(140px, 220px) 1fr' }, columnGap: 2, rowGap: depth === 0 ? 1 : 0.75 }}>
+      <Box sx={{ display: 'grid', minWidth: 0, gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(110px, 160px) minmax(0, 1fr)' }, columnGap: 2, rowGap: depth === 0 ? 1 : 0.75 }}>
         {entries.map(([k, v]) => (
           <Box key={k} sx={{ display: 'contents' }}>
-            <Typography variant="body2" color="text.secondary" sx={{ pt: 0.25 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ minWidth: 0, pt: 0.25, overflowWrap: 'anywhere' }}>
               {label(k)}
             </Typography>
-            <Box sx={{ minWidth: 0, mb: { xs: 1, sm: 0 } }}>
+            <Box sx={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word', mb: { xs: 1, md: 0 } }}>
               <EvidenceView data={v} depth={depth + 1} />
             </Box>
           </Box>
