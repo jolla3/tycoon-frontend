@@ -1,5 +1,31 @@
 # Frontend Endpoint-to-Screen Matrix
 
+## Current post-merge contract and review amendment — 2026-11-19 (authoritative)
+
+Current main commits: frontend e525b046b73254c6a49dc163319efa3a087169a3; backend 25d9969eb4f1c734f360337f0a3d64b83d465a6a. Historical matrices below are retained for traceability. This amendment supersedes stale status entries.
+
+| Area | Verified current state | Required next correction |
+|---|---|---|
+| New Tenant house picker | The modal only queries when the Tenants page global estate filter is selected; loading/error are treated as an empty result | Add modal-level estate selector and distinct loading/error/true-empty states; server revalidates eligibility |
+| HouseType create | Backend validates and persists estateId; ownership changes are rejected | Mark previous blocked status resolved; retain DB integration verification caveat |
+| Bank transaction DTO | Backend list/unmatched/assignment return safe allowlisted DTOs | Mark raw-document exposure blocker resolved; run focused DB-backed tests |
+| Manual payment | Period-specific tenancy resolution and manual-options endpoint are implemented | Remove latest-50 truncation so picker and resolver use the same candidate set |
+| Superadmin Banking onboarding | Existing encrypted connection/account lifecycle exists; mutation routes currently allow client owner/admin only; clientContext supports Superadmin with explicit clientId | Reuse the existing UI/API with selected-client scope; narrowly add Superadmin to route allowlists behind clientContext and BANKING entitlement |
+| Superadmin M-PESA onboarding | Merchant model and G5 service functions exist; no profile-management HTTP routes or creation UI | Add client-scoped Superadmin profile lifecycle and Till/estate form; preserve DRAFT/unknown defaults |
+| Transactions | Existing page/API is Banking-only | Keep the same page and add canonical M-PESA provider receipts as a second entitled source |
+| System Health responsiveness | Platform main flex child and generic evidence values can overflow constrained card widths | Add shrinkable main content, wrapping and width-aware cards; test mobile/tablet/laptop/desktop |
+
+### Backend contracts required for this implementation slice
+
+- Reuse /bank/connections and /bank/accounts. Superadmin calls must supply explicit clientId. Add SUPER_ADMIN mutation permission only after clientContext verifies the selected active client; retain requireProduct(BANKING).
+- Add Superadmin-only client-scoped M-PESA profile create/read/update routes, safe DTOs and same-client estate validation. Do not accept per-client Daraja Consumer Key/Secret; these are Tycoon platform configuration.
+- Add a paginated, safe, client/estate-scoped GET /mpesa-transactions endpoint with stable filters for receipt history. Wire it into the existing Transactions screen instead of creating a separate receipt-inbox page.
+- Add tests for selected-client isolation, entitlement failures, secret redaction, profile ownership, M-PESA DTO/scope/pagination and tenant available-house filtering plus race rejection.
+
+### Verification boundaries
+
+The backend P0 branch reports 434 unit tests passing. Nineteen DB-backed tests are written but not executed without a suitable MongoDB replica set. Frontend typecheck/lint/tests/build were reported on the feature branch; browser acceptance was not run. Do not describe the merged repositories as runtime-accepted.
+
 > Audited: 2026-11-15  
 > Frontend source baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
 > Backend API baseline: `jolla3/tycoon-estates-backend` `feat/superadmin-subscription-entitlements` @ `cc98900ba338f5b1e19bdcfe923e4dc45bc87745`  

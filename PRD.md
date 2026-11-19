@@ -1,13 +1,45 @@
 # Tycoon Estates Frontend — Product Requirements
 
+## Current implementation and review amendment — 2026-11-19 (authoritative)
+
+Current main commits: frontend e525b046b73254c6a49dc163319efa3a087169a3; backend 25d9969eb4f1c734f360337f0a3d64b83d465a6a. Original product goals and history below are preserved. This amendment supersedes older implementation-status statements where they conflict.
+
+### New Tenant house selection
+
+The New Tenant dialog currently depends on the estate filter above the Tenants page. It does not query houses until that global filter has an estate selected. It also treats an undefined result or failed request as an empty list because loading and error states are not rendered. The current empty message is therefore not proof that the client has no vacant houses. The dialog must own its estate selection and distinguish loading, request failure, true empty and available results. Creation must revalidate availability server-side.
+
+### Superadmin Banking onboarding
+
+Client provisioning already creates the CLIENT_OWNER login credentials. Bank connection credentials are a separate integration setup. Existing /bank/connections and /bank/accounts routes implement connection creation, reauthorization, disconnection and account registration using encrypted BankCredential storage. The Superadmin client Integrations tab is currently read-only. clientContext already supports SUPER_ADMIN with an explicit clientId, but current connection/account write routes authorize only CLIENT_OWNER and CLIENT_ADMIN. The console should reuse the existing workflow with selected-client scoping; the backend should narrowly allow SUPER_ADMIN only after clientContext validation and the existing BANKING entitlement gate. Do not add another credential store or expose secrets in DTOs, caches, logs or audit metadata.
+
+### Superadmin M-PESA merchant onboarding
+
+The MpesaMerchantProfile model and G5 ingestion/registration services exist, but no merchant-profile management HTTP routes or profile-creation UI exist. Add a Superadmin-controlled profile lifecycle scoped to one selected client. A profile represents that client merchant identity: Buy Goods Till/shortcode and optional estate association. Tycoon owns the Daraja application Consumer Key/Secret and environment at platform level. Do not request those platform secrets as per-client Till credentials or copy them into merchant profiles. Profile creation must default to DRAFT, unknown capabilities and no registration evidence. Operational readiness must remain evidence-derived.
+
+### Existing transaction history: Banking and M-PESA sources
+
+M-PESA history belongs in the existing Transactions experience, not a separate new product page. The existing /transactions screen and GET /transactions endpoint currently display BankTransaction rows only. MpesaTransaction records exist, but there is no client-scoped paginated read endpoint or frontend data source. Extend the existing Transactions screen to display the selected entitled source: Banking transactions and canonical M-PESA provider receipts. Preserve the differences between MpesaTransaction provider receipts, MpesaSmsSubmission evidence and posted Payment ledger entries. An unverified receipt must never be presented as a posted rent payment.
+
+### Superadmin responsive layout
+
+The platform shell main content must be allowed to shrink beside the fixed navigation. The generic evidence renderer must wrap long values and avoid min-content overflow. System Health and diagnostics cards must stack at constrained widths; menus and drawers must not obscure active content or create horizontal page overflow. Acceptance must cover mobile, tablet, laptop and desktop widths.
+
+### Merged P0 status and open verification
+
+- HouseType creation now validates and persists estateId, and attempted ownership changes are rejected.
+- BankTransaction list, unmatched and assignment responses now use an allowlisted backend DTO.
+- Manual payments resolve and post against one validated tenancy for the requested period.
+- The manual-options read model still silently limits candidates to the latest 50 tenancies while the payment resolver searches all eligible tenancies. This remains an open defect.
+- Nineteen DB-backed integration tests were added but not executed because no MongoDB replica set was available. No live API or browser acceptance is claimed.
+
 > Status: planning baseline updated for Superadmin platform V2  
 > Audited: 2026-11-15  
-> Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
+> Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `e525b046b73254c6a49dc163319efa3a087169a3`  
 > Documentation branch: `docs/frontend-planning-baseline`  
 > Backend contract baseline: `jolla3/tycoon-estates-backend` `feat/superadmin-subscription-entitlements` @ `cc98900ba338f5b1e19bdcfe923e4dc45bc87745`  
 
 
-> **Correction note (2026-11-18):** the backend contract baseline above was a feature branch. The authoritative backend is `main` @ `db7af3d49e827ede7f2cb9a7dbd88574c69224d9`. Where this document and `docs/branch-correction/*` differ (HouseType `estateId` direction, manual-payment tenancy identity, Superadmin response shapes, subscription presence), the branch-correction pack and backend source win. Historical text below is preserved.
+> **Correction note (2026-11-18):** the backend contract baseline above was a feature branch. The authoritative backend is `main` @ `25d9969eb4f1c734f360337f0a3d64b83d465a6a`. Where this document and `docs/branch-correction/*` differ (HouseType `estateId` direction, manual-payment tenancy identity, Superadmin response shapes, subscription presence), the branch-correction pack and backend source win. Historical text below is preserved.
 > Backend status: platform and entitlement changes are implemented in source; behavioural verification is pending.  
 > Scope: frontend product and integration planning only. This document does not claim that the current screens have passed runtime acceptance.
 

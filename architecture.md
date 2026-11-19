@@ -1,13 +1,39 @@
 # Tycoon Estates Frontend — Architecture Outline
 
+## Current implementation and target-boundary amendment — 2026-11-19 (authoritative)
+
+Current main commits: frontend e525b046b73254c6a49dc163319efa3a087169a3; backend 25d9969eb4f1c734f360337f0a3d64b83d465a6a. This section supersedes older source-status claims below while preserving project history.
+
+### Selected-client bank onboarding
+
+Reuse existing /bank/connections and /bank/accounts routes and their current connectionService, bankService and encrypted BankCredential model. For Superadmin operations, every request must provide one explicit clientId accepted by clientContext. That middleware verifies the target client is active and resolves req.clientId. The existing requireProduct(BANKING) remains mandatory. Add SUPER_ADMIN to mutation route allowlists only after clientContext; do not create a wildcard client scope or impersonate CLIENT_OWNER. Frontend wrappers must carry the selected clientId on list, create, reauthorize, disconnect, account registration and sync calls. Keep the actual Superadmin as the audit actor.
+
+### M-PESA profile management
+
+MpesaMerchantProfile remains the client-owned Till identity: clientId, businessShortCode, merchantType, optional estateId, capability and registration evidence, operationalState and actor references. Add platform-protected create/read/update routes for safe profile metadata under a selected client. Validate optional estate ownership. Create profiles in DRAFT with unknown capabilities and no registration evidence. Do not accept ACTIVE or VERIFIED state from user input. Tycoon process configuration owns the Daraja Consumer Key/Secret/environment; profiles must not duplicate those platform secrets or invent per-client secrets. Use existing C2B and Pull services for explicit provider registration only where their service contracts are established.
+
+A platform OAuth token proves app authentication only, not authorization for each client Till. Profile readiness and posting remain gated by merchant-specific evidence.
+
+### Shared transaction-history read model
+
+Keep the current Transactions navigation and page. Banking uses existing GET /transactions and safe BankTransaction DTOs. Add a paginated M-PESA provider-receipt read route using authenticated clientContext, requireProduct(MPESA), clientId and the enforced estate filter. Its DTO must be allowlisted and distinguish verification, claim and posting states. Estate scope must be resolved through the mapped merchant profile or attributed estate without widening across clients. Do not return lease tokens, encrypted material or raw provider payloads. MpesaSmsSubmission and G3 Payment remain separate record types.
+
+### Tenant availability and responsive layout
+
+The New Tenant modal owns estate selection and renders explicit loading/error/empty states. Its availability query is client/estate scoped, active-house scoped and excludes active tenancies; create revalidates availability atomically. In the Superadmin shell, main content must shrink with minWidth: 0. Evidence values must wrap, and System Health cards must use one column while the remaining content width is constrained.
+
+### Verification boundaries
+
+The two P0 branches are merged into main. Reported unit test success is not a substitute for the 19 unexecuted database integration tests, browser acceptance or live-provider verification. The latest-50 manual-options/resolver mismatch remains open.
+
 > Read this file first for a compact project map.  
 > Audited: 2026-11-15  
-> Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
+> Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `e525b046b73254c6a49dc163319efa3a087169a3`  
 > Documentation branch: `docs/frontend-planning-baseline`  
 > Backend contract baseline: `jolla3/tycoon-estates-backend` `feat/superadmin-subscription-entitlements` @ `cc98900ba338f5b1e19bdcfe923e4dc45bc87745`  
 
 
-> **Correction note (2026-11-18):** the backend contract baseline above was a feature branch. The authoritative backend is `main` @ `db7af3d49e827ede7f2cb9a7dbd88574c69224d9`. Where this document and `docs/branch-correction/*` differ (HouseType `estateId` direction, manual-payment tenancy identity, Superadmin response shapes, subscription presence), the branch-correction pack and backend source win. Historical text below is preserved.
+> **Correction note (2026-11-18):** the backend contract baseline above was a feature branch. The authoritative backend is `main` @ `25d9969eb4f1c734f360337f0a3d64b83d465a6a`. Where this document and `docs/branch-correction/*` differ (HouseType `estateId` direction, manual-payment tenancy identity, Superadmin response shapes, subscription presence), the branch-correction pack and backend source win. Historical text below is preserved.
 > Backend status: platform and entitlement changes are implemented in source; behavioural verification is pending.  
 > Detailed product requirements: [`PRD.md`](PRD.md)  
 > Endpoint-to-screen map: [`FRONTEND_ENDPOINT_SCREEN_MATRIX.md`](docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md)
