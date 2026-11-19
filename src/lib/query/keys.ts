@@ -49,9 +49,9 @@ export const estateKeys = {
 };
 
 export const bankingKeys = {
-  connections: () => ['bank', 'connections'] as const,
-  accounts: () => ['bank', 'accounts'] as const,
-  account: (id: string) => ['bank', 'accounts', id] as const,
+  connections: (clientId?: string) => clientId ? ['bank', 'connections', clientId] as const : ['bank', 'connections'] as const,
+  accounts: (clientId?: string) => clientId ? ['bank', 'accounts', clientId] as const : ['bank', 'accounts'] as const,
+  account: (id: string, clientId?: string) => clientId ? ['bank', 'accounts', clientId, id] as const : ['bank', 'accounts', id] as const,
 };
 
 export const mpesaKeys = {

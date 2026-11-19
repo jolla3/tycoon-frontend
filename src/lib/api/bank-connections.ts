@@ -43,10 +43,12 @@ export interface CreateBankConnectionInput {
 }
 
 export const bankConnectionsApi = {
-  list: () => apiClient.get<BankConnection[]>('/bank/connections'),
-  get: (id: string) => apiClient.get<BankConnection>(`/bank/connections/${id}`),
-  create: (input: CreateBankConnectionInput) => apiClient.post<BankConnection>('/bank/connections', input),
-  reauthorize: (id: string, credentialMaterial: CoopCredentialMaterial) =>
-    apiClient.post<BankConnection>(`/bank/connections/${id}/reauthorize`, { credentialMaterial }),
-  disconnect: (id: string) => apiClient.post<BankConnection>(`/bank/connections/${id}/disconnect`),
+  list: (clientId?: string) => apiClient.get<BankConnection[]>('/bank/connections', clientId ? { clientId } : undefined),
+  get: (id: string, clientId?: string) => apiClient.get<BankConnection>(`/bank/connections/${id}`, clientId ? { clientId } : undefined),
+  create: (input: CreateBankConnectionInput, clientId?: string) =>
+    apiClient.post<BankConnection>(`/bank/connections${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`, input),
+  reauthorize: (id: string, credentialMaterial: CoopCredentialMaterial, clientId?: string) =>
+    apiClient.post<BankConnection>(`/bank/connections/${id}/reauthorize${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`, { credentialMaterial }),
+  disconnect: (id: string, clientId?: string) =>
+    apiClient.post<BankConnection>(`/bank/connections/${id}/disconnect${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`),
 };

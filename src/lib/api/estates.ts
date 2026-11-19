@@ -50,7 +50,7 @@ export interface EstateWorkspace {
 }
 
 export const estatesApi = {
-  list: () => apiClient.get<EstateWithMetrics[]>('/estates'),
+  list: (clientId?: string) => apiClient.get<EstateWithMetrics[]>('/estates', clientId ? { clientId } : undefined),
   get: (id: string) => apiClient.get<Estate>(`/estates/${id}`),
   workspace: (id: string) => apiClient.get<EstateWorkspace>(`/estates/${id}/workspace`),
   create: (input: { name: string; address?: string; currency?: string; timezone?: string }) =>

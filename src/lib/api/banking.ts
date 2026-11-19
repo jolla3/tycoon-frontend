@@ -24,9 +24,11 @@ export interface SyncResult {
 }
 
 export const bankingApi = {
-  list: () => apiClient.get<BankAccount[]>('/bank/accounts'),
-  register: (input: RegisterBankAccountInput) => apiClient.post<BankAccount>('/bank/accounts', input),
-  sync: (accountId: string) => apiClient.post<SyncResult>(`/bank/accounts/${accountId}/sync`),
-  statement: (accountId: string, startDate: string, endDate: string) =>
-    apiClient.get<SyncResult>(`/bank/accounts/${accountId}/statement`, { startDate, endDate }),
+  list: (clientId?: string) => apiClient.get<BankAccount[]>('/bank/accounts', clientId ? { clientId } : undefined),
+  register: (input: RegisterBankAccountInput, clientId?: string) =>
+    apiClient.post<BankAccount>(`/bank/accounts${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`, input),
+  sync: (accountId: string, clientId?: string) =>
+    apiClient.post<SyncResult>(`/bank/accounts/${accountId}/sync${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`),
+  statement: (accountId: string, startDate: string, endDate: string, clientId?: string) =>
+    apiClient.get<SyncResult>(`/bank/accounts/${accountId}/statement`, { startDate, endDate, clientId }),
 };
