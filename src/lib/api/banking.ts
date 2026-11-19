@@ -2,7 +2,7 @@
 //
 // Lifecycle: create a BankConnection (bank-connections.ts) first, then register
 // an account under an ACTIVE connection. Account lists are scoped server-side
-// from the session; the frontend never sends clientId.
+// from the session for client users; Superadmin supplies an explicit clientId query scope.
 import { apiClient } from './client';
 import type { BankAccount } from '@/types/api';
 

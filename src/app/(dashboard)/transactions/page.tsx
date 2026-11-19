@@ -25,7 +25,7 @@ import type { BankTransaction, MatchStatus } from '@/types/api';
 type TransactionSource = 'BANKING' | 'MPESA';
 
 function verificationLabel(state: MpesaVerificationState) {
-  return state.replaceAll('_', ' ');
+  return state.replace(/_/g, ' ');
 }
 function postingLabel(state: MpesaPostingState) {
   return state.replaceAll('_', ' ');
@@ -43,7 +43,7 @@ export default function TransactionsPage() {
   const [page, setPage] = useState(1);
 
   const subscription = useQuery({
-    queryKey: ['subscription', 'current-client'],
+    queryKey: ['subscription', identity],
     queryFn: () => subscriptionApi.get(),
     retry: false,
   });
