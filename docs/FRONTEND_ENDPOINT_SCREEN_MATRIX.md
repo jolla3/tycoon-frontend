@@ -1,20 +1,43 @@
 # Frontend Endpoint-to-Screen Matrix
 
+## Authoritative M-PESA scope correction — 2026-11-19
+
+The product target is not one Till per estate. A client may use one PayBill/Till across several of its estates. The current implementation row below records only the narrow current branch state; it does not define the target product boundary.
+
+### Target UI and API responsibilities
+
+- Superadmin creates one merchant profile per actual client shortcode and selects `PAYBILL` or `BUY_GOODS_TILL`. The same profile can be mapped to multiple client-owned estates in one atomic, audited operation. Never duplicate the shortcode to create estate associations.
+- The current create API accepts one `estateId`; the target contract must accept a list of estate mappings or expose a dedicated mapping operation. The server validates every estate against the selected client and prevents cross-client ownership.
+- Profile detail must show the shared callback configuration reference/version and the safe URL snapshot registered for C2B/Pull, plus separate registration and capability states. Do not ask each client for a callback URL or Daraja Consumer Key/Secret.
+- Pull nominated MSISDN is captured only through a protected Manager workflow, stored encrypted/protected and displayed masked. It is not the same as a callback URL.
+- For PayBill, the tenant's BillRefNumber/collection reference must resolve to one tenant + estate. Missing or ambiguous references remain unallocated. For Till, preserve the current tenant SMS-evidence path and verify an active merchant-estate mapping before posting.
+- The existing Transactions page remains the receipt history surface. Estate-restricted history must use exact reference resolution or verified `attributedEstateId`; filtering by merchant profile's mapped-estate list would expose receipts from other estates using the same shortcode.
+- Keep canonical provider receipts, SMS evidence submissions and posted Payments separate. The UI must show receipt allocation and posting state without implying that an unallocated receipt is rent paid.
+
+### Provider registration and release gates
+
+C2B callback URLs and Pull-results callback URLs are Tycoon-hosted shared endpoints registered against each shortcode. External C2B validation is optional and requires Safaricom enablement. Callback authenticity is still an unresolved provider evidence gate; do not present registration as operational readiness or enable public processing until trust, idempotency and timeout behavior are verified.
+
+Banking remains adapter-based. Co-op is the first implemented adapter; future banks are added through the existing adapter contract and provider-specific verification. A reserved provider shell is not evidence of a completed/operational integration.
+
+These requirements are target design only. The current review branch does not yet implement PayBill, multi-estate mappings, PayBill reference routing, or the full registration configuration lifecycle.
+
+
 ## Review-branch implementation status — 2026-11-19 (not merged)
 
-Frontend review branch `149fd92e4a17eccb63530f8f0e2dc9f820181870`; backend review branch `59afbda14c70feffbc9f53b323ef2792b81d539d`. These changes are separate from main and require review.
+Frontend and backend review branches: `docs/superadmin-onboarding-and-history`. These changes are separate from main and require review.
 
 | Area | Implementation now on review branches | Remaining verification / limitation |
 |---|---|---|
 | New Tenant house selector | Dialog owns estate selection, paginates vacant houses, differentiates loading/error/empty; backend filters active/unoccupied houses and rechecks within transaction | Browser test and DB-backed occupancy/race test not run |
 | Superadmin Banking onboarding | Reuses customer Co-op credential and account registration UI in client detail; clientId supplied in query; SUPER_ADMIN added after clientContext + BANKING entitlement | Test active-client isolation, entitlement denial, credential redaction and reauthorization in browser/API |
-| Superadmin M-PESA Till profiles | POST `/platform/clients/:clientId/mpesa-profiles`, validated client/estate, unique-index readiness, audit transaction, DRAFT defaults | Single Till -> one estate only; no C2B/Pull registration action yet |
+| Superadmin M-PESA merchant profiles | Current POST `/platform/clients/:clientId/mpesa-profiles` creates DRAFT BUY_GOODS_TILL with one estateId | Current API is narrower than target: PAYBILL, multi-estate mapping, PayBill references, callback-config snapshots and Pull MSISDN lifecycle are not implemented |
 | Transaction history | Existing Transactions page now has BANKING/M-PESA source selector based on subscription products; M-PESA uses canonical receipt API and safe DTO | M-PESA query-index readiness required; API scope/pagination tests and browser verification not run |
 | Superadmin responsive shell | Main content shrink/wrap, evidence scalar wrapping, health cards stack until large viewport | Visual viewport/overlay acceptance not run |
 
 ### New API contracts on backend review branch
 
-- `POST /platform/clients/:clientId/mpesa-profiles` accepts only a numeric `businessShortCode`, optional `displayName`, and a client-owned `estateId`; no credentials, capability overrides or operational-state overrides are accepted.
+- Current `POST /platform/clients/:clientId/mpesa-profiles` accepts a numeric `businessShortCode`, optional `displayName` and one client-owned `estateId`. This is the current narrow slice, not the target request shape. The target must accept merchant type + multiple client-owned estate mappings atomically and must not accept credentials/capability/operational-state overrides.
 - `GET /mpesa-transactions` accepts `estateId`, page/limit, `verificationState`, `postingState`, `businessShortCode`, `startDate`, `endDate`; response is an allowlisted paginated canonical receipt DTO.
 - Existing `/bank/connections` and `/bank/accounts` now accept selected `clientId` in query for Superadmin flows; request bodies remain free of clientId.
 
@@ -26,9 +49,9 @@ The manual-payment history picker still exposes only the latest 50 tenancies whi
 
 Before implementation, the plan was challenged for hidden assumptions and unsafe shortcuts:
 
-1. **One Till to several estates is not supported by the current model.** MpesaMerchantProfile has one optional estateId, and the G5 posting evidence gate rejects a profile with no estate mapping or a mapping that differs from the tenant link estate. The first onboarding form must select one estate per Till profile. Do not pretend one Till can be shared across estates. A single shortcode is unique per client, so duplicating the same Till across estates is not a workaround. Multi-estate mapping is a separate model/product decision.
-2. **Create-profile is not provider registration.** C2B registration requires callback and validation URLs; Pull registration additionally requires a nominated number and callback URL. These values are not part of the client Till identity. Profile creation must not call provider registration with guessed URLs or numbers and must not promote the profile to ACTIVE/VERIFIED.
-3. **Merchant uniqueness is migration-controlled.** MpesaMerchantProfile has autoIndex:false and its (clientId,businessShortCode) unique index is explicit migration-controlled. Profile creation must fail closed when the expected unique-index gate is not ready; do not rely on an application-level pre-check alone for race safety.
+1. **The implementation's one-estate shape is not the product rule.** Target is one merchant profile to many same-client estates through explicit mapping records; legacy estateId and G5 equality checks require migration and redesign.
+2. **Create-profile is not provider registration.** Shared Tycoon callback endpoints are registered against each shortcode. Profiles record the platform configuration version/URL snapshot; Pull additionally needs the shortcode's nominated MSISDN in protected storage. Do not accept client-hosted callback URLs or promote registration to operational readiness.
+3. **Merchant identity and callback lookup must share one scope.** Current lookup is shortcode-wide while uniqueness is per-client. Target is one owner per provider shortcode in the configured environment, backed by a migration-controlled unique index and fail-closed resolution.
 4. **Transaction history must not combine record types.** M-PESA history reads canonical MpesaTransaction receipts, not SMS submissions and not ledger Payment rows. The DTO must be safe and scope by client plus the selected estate's merchant profiles/attribution.
 5. **Banking access stays entitlement-gated.** Superadmin must use one explicit active clientId through clientContext. The existing BANKING entitlement check remains active. Do not add a global/bypass route or store new credentials. Existing Co-op credentials remain encrypted in BankCredential.
 6. **Tenant availability must be authoritative.** Filter active houses and exclude active tenancies, but also recheck inside the same Mongo transaction that opens the tenancy. A dropdown is not a concurrency or authorization boundary.
