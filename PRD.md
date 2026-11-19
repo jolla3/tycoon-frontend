@@ -1,5 +1,24 @@
 # Tycoon Estates Frontend — Product Requirements
 
+## Implementation update from frontend review — 2026-11-19 (review branch, not merged)
+
+Review branches: frontend `docs/superadmin-onboarding-and-history` @ `149fd92e4a17eccb63530f8f0e2dc9f820181870`; backend `docs/superadmin-onboarding-and-history` @ `59afbda14c70feffbc9f53b323ef2792b81d539d`. These changes are not on `main` yet.
+
+- **New Tenant:** the modal owns estate selection and separates loading, request error, true-empty and available-house states. The backend `GET /houses?estateId=...&status=vacant` now excludes inactive houses, non-null tenant links and houses with ACTIVE Tenancy records; `tenancyService.open` repeats the vacancy checks inside the Mongo transaction.
+- **Banking onboarding:** the existing Co-operative Bank connection/account UI is extracted into `BankingSetupPanel` and embedded in Superadmin client Integrations. API calls supply one explicit clientId in query scope; bank mutation routes permit SUPER_ADMIN only after `clientContext` and `requireProduct('BANKING')`. Existing encrypted `BankCredential` is reused. Client login credentials remain created by client provisioning, not by this integration panel.
+- **M-PESA Till profile:** Superadmin can create a client-scoped DRAFT Buy Goods Till profile at `POST /platform/clients/:clientId/mpesa-profiles`. Inputs are the client's Till shortcode, display name and one estate mapping. The route rejects client/estate mismatch, requires the migration-controlled unique index, audits the action, and never accepts Daraja Consumer Key/Secret or caller-supplied operational states.
+- **M-PESA transaction history:** the existing `/transactions` page now switches between Banking transactions and canonical M-PESA receipt history when the corresponding entitlements are assigned. M-PESA reads use `GET /mpesa-transactions`, a safe paginated DTO, selected client scope and enforced estate scope. SMS submissions remain in the separate review queue; ledger Payments remain distinct.
+- **Responsive Superadmin:** main content is shrinkable beside the navigation, evidence values wrap, and System Health cards move to two columns only at larger widths.
+
+### Deliberately incomplete / verification limits
+
+- Till profile creation leaves the profile in DRAFT. It does not trigger C2B or Pull registration: those provider calls require platform callback/validation URLs and a Pull nominated number that are not part of this client Till identity form. No provider registration success is implied.
+- The current merchant schema supports one estate mapping per Till. A single Till serving multiple estates remains unsupported; the UI explicitly states this instead of duplicating a unique shortcode profile.
+- The Banking provider implemented by the existing form is Co-operative Bank. This change does not add other banks.
+- The backend requires the M-PESA merchant unique index for profile creation and canonical query indexes for history. If migrations/index readiness are missing, the endpoints fail closed with 503.
+- The New Tenant and M-PESA/banking flows have not been exercised in a browser against a live API. No frontend build or test result is claimed yet. The new backend unit tests have been added but not executed.
+- The manual-payment options read model still has its separate latest-50 tenancy limit mismatch; it remains open.
+
 ## Design review hardening — 2026-11-19
 
 Before implementation, the plan was challenged for hidden assumptions and unsafe shortcuts:

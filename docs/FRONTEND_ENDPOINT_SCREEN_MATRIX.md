@@ -1,5 +1,27 @@
 # Frontend Endpoint-to-Screen Matrix
 
+## Review-branch implementation status — 2026-11-19 (not merged)
+
+Frontend review branch `149fd92e4a17eccb63530f8f0e2dc9f820181870`; backend review branch `59afbda14c70feffbc9f53b323ef2792b81d539d`. These changes are separate from main and require review.
+
+| Area | Implementation now on review branches | Remaining verification / limitation |
+|---|---|---|
+| New Tenant house selector | Dialog owns estate selection, paginates vacant houses, differentiates loading/error/empty; backend filters active/unoccupied houses and rechecks within transaction | Browser test and DB-backed occupancy/race test not run |
+| Superadmin Banking onboarding | Reuses customer Co-op credential and account registration UI in client detail; clientId supplied in query; SUPER_ADMIN added after clientContext + BANKING entitlement | Test active-client isolation, entitlement denial, credential redaction and reauthorization in browser/API |
+| Superadmin M-PESA Till profiles | POST `/platform/clients/:clientId/mpesa-profiles`, validated client/estate, unique-index readiness, audit transaction, DRAFT defaults | Single Till -> one estate only; no C2B/Pull registration action yet |
+| Transaction history | Existing Transactions page now has BANKING/M-PESA source selector based on subscription products; M-PESA uses canonical receipt API and safe DTO | M-PESA query-index readiness required; API scope/pagination tests and browser verification not run |
+| Superadmin responsive shell | Main content shrink/wrap, evidence scalar wrapping, health cards stack until large viewport | Visual viewport/overlay acceptance not run |
+
+### New API contracts on backend review branch
+
+- `POST /platform/clients/:clientId/mpesa-profiles` accepts only a numeric `businessShortCode`, optional `displayName`, and a client-owned `estateId`; no credentials, capability overrides or operational-state overrides are accepted.
+- `GET /mpesa-transactions` accepts `estateId`, page/limit, `verificationState`, `postingState`, `businessShortCode`, `startDate`, `endDate`; response is an allowlisted paginated canonical receipt DTO.
+- Existing `/bank/connections` and `/bank/accounts` now accept selected `clientId` in query for Superadmin flows; request bodies remain free of clientId.
+
+### Remaining known issue
+
+The manual-payment history picker still exposes only the latest 50 tenancies while the backend resolver considers all eligible tenancies. This separate P0 edge case has not been fixed by this review branch.
+
 ## Design review hardening — 2026-11-19
 
 Before implementation, the plan was challenged for hidden assumptions and unsafe shortcuts:

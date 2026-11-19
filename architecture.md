@@ -1,5 +1,28 @@
 # Tycoon Estates Frontend — Architecture Outline
 
+## Review implementation update — 2026-11-19 (not merged to main)
+
+Implementation branch heads: frontend `149fd92e4a17eccb63530f8f0e2dc9f820181870`; backend `59afbda14c70feffbc9f53b323ef2792b81d539d`. Use these branches for review; main remains unchanged after the earlier P0 merges.
+
+### Contracts now wired on the review branches
+
+- New Tenant selection: modal-level estate state, `GET /houses` with `status=vacant` and pagination. Backend vacancy filtering requires active house, no tenantId and no ACTIVE Tenancy. `tenancyService.open` rechecks the same conditions inside the transaction.
+- Superadmin Banking: extracted `BankingSetupPanel`, selected clientId is query-scoped on `/bank/connections` and `/bank/accounts` calls; write route allowlists add SUPER_ADMIN after `clientContext` and `requireProduct('BANKING')`. Existing service and encrypted secret boundary are reused.
+- Superadmin M-PESA: `POST /platform/clients/:clientId/mpesa-profiles` with `{businessShortCode, displayName?, estateId}`; client and estate are revalidated inside transaction, `merchantRegistration` index readiness is mandatory, state is DRAFT/UNKNOWN/NONE, and auditRequired shares the transaction.
+- Canonical receipt history: `GET /mpesa-transactions` (authenticate, clientContext, requireProduct MPESA, strict filters, pagination, canonical query-index readiness). DTO exposes receipt/business reference/date/amount/source/verification/claim/posting state only. Frontend displays this source inside existing Transactions page.
+
+### Important boundary decisions
+
+- Existing BankConnection credentials are Tycoon customer Co-op OAuth material stored via BankCredential; Superadmin is the audit actor and explicit clientId chooses the target. No new secret store exists.
+- Tycoon Daraja Consumer Key/Secret remain platform process configuration; a client's M-PESA profile stores the merchant Till/shortcode identity only.
+- MpesaMerchantProfile currently supports `BUY_GOODS_TILL` and one estateId. Multi-estate Till routing is not supported by the current model. Till profiles start DRAFT. Provider registration is intentionally not called until callback/validation URLs and Pull nominated-number configuration are explicitly defined.
+- BankTransaction, MpesaTransaction, MpesaSmsSubmission and G3 Payment remain distinct records. The Transactions page displays BankTransaction or canonical MpesaTransaction by client entitlement. It never treats SMS evidence as receipt history or a posted payment.
+- Backend endpoint readiness gates fail closed if the unique merchant index or canonical receipt query indexes are missing.
+
+### Review-only status
+
+Implementation has not been merged or deployed. New backend tests are committed but not run. Browser acceptance, replica-set integration tests and live provider tests remain required. The P0 manual-options latest-50 candidate mismatch remains open.
+
 ## Design review hardening — 2026-11-19
 
 Before implementation, the plan was challenged for hidden assumptions and unsafe shortcuts:
