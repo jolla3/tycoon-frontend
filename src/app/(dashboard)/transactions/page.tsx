@@ -28,7 +28,7 @@ function verificationLabel(state: MpesaVerificationState) {
   return state.replace(/_/g, ' ');
 }
 function postingLabel(state: MpesaPostingState) {
-  return state.replaceAll('_', ' ');
+  return state.replace(/_/g, ' ');
 }
 
 export default function TransactionsPage() {

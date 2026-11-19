@@ -139,7 +139,7 @@ function ConnectionCard({ connection, canManage, clientId }: { connection: BankC
 
   const disconnect = useMutation({
     mutationFn: () => bankConnectionsApi.disconnect(connection.id, clientId),
-    onSuccess: () => { setError(null); qc.invalidateQueries({ queryKey: bankingKeys.connections() }); qc.invalidateQueries({ queryKey: bankingKeys.accounts() }); },
+    onSuccess: () => { setError(null); qc.invalidateQueries({ queryKey: bankingKeys.connections(clientId) }); qc.invalidateQueries({ queryKey: bankingKeys.accounts(clientId) }); },
     onError: (e) => setError(e instanceof ApiError ? e.message : 'Unable to disconnect.'),
   });
 
