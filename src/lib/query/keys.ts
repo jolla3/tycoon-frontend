@@ -55,6 +55,7 @@ export const bankingKeys = {
 };
 
 export const mpesaKeys = {
+  transactions: (estateId: string | undefined, filters?: Filters) => ['mpesa', 'transactions', estateKeys.scope(estateId), filters ?? {}] as const,
   link: (tenantId: string) => ['mpesa', 'link', tenantId] as const,
   linkFamily: () => ['mpesa', 'link'] as const,
   submissions: (clientId: string | undefined, filters?: Filters) => ['mpesa', 'submissions', clientId ?? 'own', filters ?? {}] as const,
