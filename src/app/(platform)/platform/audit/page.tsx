@@ -22,7 +22,7 @@ export default function PlatformAuditPage() {
     { key: 'when', header: 'When', render: (r) => (r.createdAt ? dateFormat(r.createdAt, 'DD MMM YYYY HH:mm') : '—') },
     { key: 'action', header: 'Action', render: (r) => r.action },
     { key: 'resource', header: 'Resource', render: (r) => r.resource ?? '—' },
-    { key: 'user', header: 'User', render: (r) => r.userId?.email || r.userId?.name || '—' },
+    { key: 'user', header: 'User', render: (r) => r.actor?.email || r.actor?.name || '—' },
     { key: 'desc', header: 'Description', render: (r) => r.description || '—' },
   ];
 
@@ -38,7 +38,7 @@ export default function PlatformAuditPage() {
         <DataTable
           columns={columns}
           rows={data?.items}
-          rowKey={(r) => r._id}
+          rowKey={(r) => r.id}
           isLoading={isLoading}
           error={error}
           emptyIcon={Shield}

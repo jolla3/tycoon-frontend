@@ -11,6 +11,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { paymentsApi } from '@/lib/api/payments';
+import { buildManualPaymentInput, describeTenancy, resolveChoice, tenancyToSubmit } from '@/features/payments/manual-payment';
 import { housesApi } from '@/lib/api/houses';
 import { formatCents } from '@/lib/formatting/currency';
 import { PaymentStatusChip, PaymentOriginChip } from '@/components/data-display/status-chip';
@@ -159,19 +160,23 @@ function RecordPaymentDialog({
   const [houseId, setHouseId] = useState('');
   const [amountKes, setAmountKes] = useState('');
   const [reference, setReference] = useState('');
+  const [period, setPeriod] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).slice(0, 7));
+  const [selectedTenancyId, setSelectedTenancyId] = useState('');
+  const periodValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
+  const optionsQuery = useQuery({
+    queryKey: ['payments', 'manual-options', houseId, period],
+    queryFn: () => paymentsApi.manualOptions({ houseId, period }),
+    enabled: open && Boolean(houseId) && periodValid,
+    staleTime: 0,
+  });
+  const choice = optionsQuery.data ? resolveChoice(optionsQuery.data) : resolveChoice(undefined);
+  const tenancyId = tenancyToSubmit(choice, selectedTenancyId);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: () => {
-      const amountCents = Math.round(Number(amountKes) * 100);
-      if (!houseId) throw new Error('Select a house');
-      if (!Number.isFinite(amountCents) || amountCents <= 0) throw new Error('Enter a positive amount');
-      return paymentsApi.create({
-        houseId,
-        amountCents,
-        paymentReference: reference.trim() || undefined,
-      });
+      return paymentsApi.create(buildManualPaymentInput({ houseId, period, amountKes, reference, tenancyId }));
     },
     onSuccess: (res) => {
       setFormError(null);
@@ -196,7 +201,7 @@ function RecordPaymentDialog({
           {!canReach && <Alert severity="warning">Recording a payment requires connectivity.</Alert>}
           {formError && <Alert severity="error">{formError}</Alert>}
           {success && <Alert severity="success">{success}</Alert>}
-          <Select displayEmpty value={houseId} onChange={(e) => setHouseId(e.target.value)} fullWidth>
+          <Select displayEmpty value={houseId} onChange={(e) => { setHouseId(e.target.value); setSelectedTenancyId(''); }} fullWidth>
             <MenuItem value="">Select house</MenuItem>
             {(housesPage?.items ?? []).map((h) => (
               <MenuItem key={h._id} value={h._id}>
@@ -205,18 +210,50 @@ function RecordPaymentDialog({
               </MenuItem>
             ))}
           </Select>
+          <TextField
+            label="Rent month"
+            type="month"
+            value={period}
+            onChange={(e) => { setPeriod(e.target.value); setSelectedTenancyId(''); }}
+            InputLabelProps={{ shrink: true }}
+            error={!periodValid}
+            helperText="The month this payment is for. It decides which tenancy is charged."
+          />
+          {houseId && periodValid ? (
+            optionsQuery.isError ? (
+              <Alert severity="error">Could not load tenancy details. Nothing was changed.</Alert>
+            ) : choice.kind === 'loading' ? (
+              <Typography variant="body2" color="text.secondary">Checking who occupied this house in {period}…</Typography>
+            ) : choice.kind === 'unique' ? (
+              <Alert severity="info">Recorded against: {describeTenancy(choice.option, (d) => dateFormat(d, 'DD MMM YYYY'))}</Alert>
+            ) : choice.kind === 'choose' ? (
+              <Select displayEmpty value={selectedTenancyId} onChange={(e) => setSelectedTenancyId(e.target.value)} fullWidth>
+                <MenuItem value="">Which tenancy is this payment for?</MenuItem>
+                {choice.options.map((o) => (
+                  <MenuItem key={o.tenancyId} value={o.tenancyId}>{describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}</MenuItem>
+                ))}
+              </Select>
+            ) : (
+              <Alert severity="warning">
+                No single tenancy fully covers {period} for this house, so the payment cannot be attributed to a tenant. Partial-month billing is not supported yet.
+                {choice.options.map((o) => (
+                  <div key={o.tenancyId}>{describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}{o.reason ? ` — ${o.reason}` : ''}</div>
+                ))}
+              </Alert>
+            )
+          ) : null}
           <TextField label="Amount (KES)" type="number" value={amountKes} onChange={(e) => setAmountKes(e.target.value)} required />
           <TextField
             label="Reference (optional)"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            helperText="Same house + reference + amount will not double-post"
+            helperText="A reference can only be used once per client; repeating the same details returns the original payment"
           />
           {housesPage && housesPage.pagination.total > housesPage.items.length ? (
             <Alert severity="info">Showing the first {housesPage.items.length} of {housesPage.pagination.total} occupied houses. Use the house workspace to record a payment for a house not listed.</Alert>
           ) : null}
           <Typography variant="caption" color="text.secondary">
-            Server allocates oldest outstanding RentCharge first.
+            The server charges the selected tenancy and allocates oldest outstanding charge first.
           </Typography>
         </Stack>
       </DialogContent>
@@ -224,7 +261,7 @@ function RecordPaymentDialog({
         <Button onClick={onClose}>Close</Button>
         <Button
           variant="contained"
-          disabled={!canReach || mutation.isPending || !houseId || !amountKes}
+          disabled={!canReach || mutation.isPending || !houseId || !amountKes || !tenancyId}
           onClick={() => {
             setFormError(null);
             setSuccess(null);

@@ -8,6 +8,7 @@ import { Building2 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { ActiveChip, ProductChips } from '@/features/platform/product-chips';
+import { productsOf, subscriptionState } from '@/features/platform/subscription-state';
 import { TablePager } from '@/features/platform/table-pager';
 import { platformApi, type BankConnectionStatus, type ClientListFilters, type MpesaOperationalState, type PlatformClientRow, type PlatformPlan, type Product, type ProductFilter, type ProvisionClientInput } from '@/lib/api/platform';
 import { platformKeys } from '@/lib/query/keys';
@@ -134,8 +135,8 @@ export default function PlatformClientsPage() {
     { key: 'name', header: 'Client', render: (c) => c.name },
     { key: 'owner', header: 'Owner', render: (c) => c.owner?.email || c.owner?.name || '—' },
     { key: 'status', header: 'Status', render: (c) => <ActiveChip active={c.isActive} /> },
-    { key: 'subscription', header: 'Subscription', render: (c) => (c.subscription ? `${c.subscription.plan} · ${c.subscription.status}` : c.hasSubscription === false ? 'None' : '—') },
-    { key: 'products', header: 'Products', render: (c) => <ProductChips products={c.subscription?.products ?? c.products} hasSubscription={c.hasSubscription !== false} /> },
+    { key: 'subscription', header: 'Subscription', render: (c) => (c.subscription.present ? `${c.subscription.plan} · ${c.subscription.status}` : 'None') },
+    { key: 'products', header: 'Products', render: (c) => <ProductChips products={productsOf(c)} hasSubscription={subscriptionState(c) !== 'MISSING'} /> },
     { key: 'estates', header: 'Estates', align: 'right', render: (c) => c.estateCount },
     { key: 'houses', header: 'Houses', align: 'right', render: (c) => c.houseCount },
     { key: 'created', header: 'Created', render: (c) => (c.createdAt ? dateFormat(c.createdAt, 'DD MMM YYYY') : '—') },
@@ -218,7 +219,7 @@ export default function PlatformClientsPage() {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 {c.owner?.email || '—'} · {c.estateCount} estates · {c.houseCount} houses
               </Typography>
-              <ProductChips products={c.subscription?.products ?? c.products} hasSubscription={c.hasSubscription !== false} />
+              <ProductChips products={productsOf(c)} hasSubscription={subscriptionState(c) !== 'MISSING'} />
             </Card>
           )}
         />

@@ -1,8 +1,7 @@
 // src/lib/api/platform/types.ts
 //
-// DTOs for /api/v1/platform/* (SUPER_ADMIN only). Field names come from
-// docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md §17 (backend branch
-// feat/superadmin-subscription-entitlements @ cc98900). Where the matrix names a
+// DTOs for /api/v1/platform/* (SUPER_ADMIN only), verified against backend main
+// @ db7af3d (platform.service.js, platformIntegrations.service.js). Where the matrix names a
 // block but not its inner field names (marked UNVERIFIED), the type is
 // deliberately loose (`Record<string, unknown>`) and the UI renders it through
 // the generic evidence renderer instead of guessing field names.
@@ -45,6 +44,70 @@ export interface PlatformOwner {
   isActive?: boolean;
 }
 
+/**
+ * Subscription as returned by GET /platform/clients (list rows and detail).
+ * The backend NEVER returns null/undefined: a client without a Subscription
+ * document gets `{ present: false }`, which is truthy. Always branch on `present`
+ * (see features/platform/subscription-state.ts), never on the object itself.
+ * List rows omit `products` here and carry them at the row's top level.
+ */
+export type PlatformClientSubscription =
+  | { present: false }
+  | {
+      present: true;
+      id?: string;
+      plan: PlatformPlan | string;
+      status: string;
+      startDate?: string | null;
+      endDate?: string | null;
+      products?: Product[];
+      assignedByUserId?: string | null;
+      lastChangedByUserId?: string | null;
+      createdAt?: string;
+      updatedAt?: string;
+    };
+
+/** Per-client Banking rollup (counts and timestamps only). */
+export interface ClientBankingSummary {
+  connectionCount: number;
+  providers: string[];
+  connectionStatuses: Record<string, number>;
+  accountCount: number;
+  accountConnectionStatuses: Record<string, number>;
+  validationStatuses: Record<string, number>;
+  capabilities: { poll: number; statement: number; balance: number; webhookIngest: number };
+  lastSyncAttemptAt: string | null;
+  lastSyncSuccessAt: string | null;
+}
+
+/** Safe M-PESA merchant profile (no credentials, no tokens). */
+export interface ClientMpesaProfile {
+  id: string;
+  clientId: string;
+  estateId: string | null;
+  displayName: string | null;
+  merchantType: string;
+  businessShortCode: string;
+  operationalState: MpesaOperationalState;
+  callbackCapability: MpesaCapability;
+  pullCapability: MpesaCapability;
+  c2bRegistrationState: MpesaRegistrationState;
+  pullRegistrationState: MpesaRegistrationState;
+  lastPullRegisteredAt: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  ingestionEvidence?: Record<string, { lastReceivedAt: string; lastState: string; total: number }>;
+}
+
+export interface ClientMpesaSummary {
+  profileCount: number;
+  operationalStates: Record<string, number>;
+  callbackCapabilities: Record<string, number>;
+  pullCapabilities: Record<string, number>;
+  /** Present on the detail response only. */
+  profiles?: ClientMpesaProfile[];
+}
+
 export interface PlatformClientRow {
   _id: string;
   name: string;
@@ -53,22 +116,16 @@ export interface PlatformClientRow {
   owner?: PlatformOwner | null;
   estateCount: number;
   houseCount: number;
-  /** Subscription presence is explicit: false = no Subscription document. */
-  hasSubscription?: boolean;
-  subscription?: PlatformSubscription | null;
-  products?: Product[];
-  /** UNVERIFIED inner shape — rendered generically. */
-  banking?: Record<string, unknown> | null;
-  mpesa?: Record<string, unknown> | null;
+  subscription: PlatformClientSubscription;
+  /** `Subscription.products`, `[]` when there is none. Use subscriptionState() to tell the cases apart. */
+  products: Product[];
+  banking: ClientBankingSummary;
+  mpesa: ClientMpesaSummary;
 }
 
 export interface PlatformClientDetail extends PlatformClientRow {
   activeTenantCount?: number;
   staffCount?: number;
-  tenantCount?: number;
-  /** UNVERIFIED inner shape — safe M-PESA profiles/evidence summary. */
-  mpesaProfiles?: Array<Record<string, unknown>>;
-  bankingSummary?: Record<string, unknown> | null;
 }
 
 export interface ClientListFilters {
@@ -166,29 +223,46 @@ export interface ProductAccess {
   reason?: string | null;
 }
 
+export type EntitlementReason =
+  | 'SUBSCRIPTION_MISSING'
+  | 'PRODUCT_NOT_ASSIGNED'
+  | 'CLIENT_INACTIVE'
+  | 'CLIENT_NOT_FOUND'
+  | 'PRODUCT_UNKNOWN';
+
+/** Safe audit row (backend toSafeAudit). The actor is `actor`, not `userId`. */
+export interface PlatformAuditEntry {
+  id: string;
+  createdAt: string;
+  action: string;
+  resource: string | null;
+  resourceId: string | null;
+  description: string | null;
+  actor: { id: string | null; name?: string; email?: string; role?: string };
+  targetClient: { id: string | null; name?: string; isActive?: boolean };
+  metadata?: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
 export interface ClientDiagnostics {
-  client: PlatformClientDetail | Record<string, unknown>;
+  client: PlatformClientDetail;
   operationalAccess: {
     clientActive: boolean;
     ordinaryOperationsBlocked: boolean;
-    /** Per-product entitled/reason; container key naming is not documented, so it is read defensively. */
-    [key: string]: unknown;
+    entitlement: Record<Product, { entitled: boolean; reason: EntitlementReason | null }>;
   };
-  recentAudit: Array<{
-    _id?: string;
-    action: string;
-    resource?: string;
-    description?: string;
-    createdAt?: string;
-    userId?: { name?: string; email?: string; role?: string } | string | null;
-  }>;
+  recentAudit: PlatformAuditEntry[];
   jobOutcomes: Array<{
-    name?: string;
-    jobName?: string;
-    lastRunAt?: string | null;
-    outcome?: string | null;
-    finishedAt?: string | null;
-    counts?: Record<string, number> | null;
+    name: string;
+    lastRunAt: string | null;
+    /** Nested; null when the job has not reported an outcome. */
+    lastOutcome: {
+      outcome: string;
+      finishedAt: string | null;
+      /** Per-client counts where the job reports them; inner shape is job-specific. */
+      forThisClient: Record<string, unknown> | null;
+    } | null;
   }>;
 }
 
@@ -284,18 +358,7 @@ export interface PlatformUserRow {
   client?: { id: string; name: string; isActive?: boolean } | null;
 }
 
-export interface PlatformAuditRow {
-  _id: string;
-  action: string;
-  resource?: string;
-  resourceId?: string;
-  clientId?: string;
-  description?: string;
-  ipAddress?: string;
-  userAgent?: string;
-  createdAt: string;
-  userId?: { name?: string; email?: string; role?: string } | null;
-}
+export type PlatformAuditRow = PlatformAuditEntry;
 
 export interface PlatformSubscriptionRow {
   _id: string;

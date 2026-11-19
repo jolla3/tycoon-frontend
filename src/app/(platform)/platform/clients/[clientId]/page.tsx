@@ -13,6 +13,7 @@ import { ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { ErrorState } from '@/components/feedback/error-state';
 import { EvidenceView } from '@/features/platform/evidence-view';
+import { ENTITLEMENT_REASON_TEXT, productsOf, subscriptionState } from '@/features/platform/subscription-state';
 import { ActiveChip, ProductChips } from '@/features/platform/product-chips';
 import { platformApi, type PlatformClientDetail, type PlatformPlan, type Product, type UpdateClientSubscriptionInput } from '@/lib/api/platform';
 import { platformKeys } from '@/lib/query/keys';
@@ -71,7 +72,7 @@ function OverviewTab({ client }: { client: PlatformClientDetail }) {
 
 function SubscriptionTab({ client }: { client: PlatformClientDetail }) {
   const qc = useQueryClient();
-  const sub = client.subscription;
+  const sub = client.subscription.present ? client.subscription : null;
   const [plan, setPlan] = useState<PlatformPlan>('trial');
   const [products, setProducts] = useState<Product[]>([]);
   const [startDate, setStartDate] = useState('');
@@ -80,10 +81,10 @@ function SubscriptionTab({ client }: { client: PlatformClientDetail }) {
   useEffect(() => {
     if (!sub) return;
     setPlan((sub.plan as PlatformPlan) ?? 'trial');
-    setProducts(sub.products ?? []);
+    setProducts(productsOf(client));
     setStartDate(sub.startDate ? sub.startDate.slice(0, 10) : '');
     setEndDate(sub.endDate ? sub.endDate.slice(0, 10) : '');
-  }, [sub]);
+  }, [sub, client]);
 
   const save = useMutation({
     mutationFn: (updates: UpdateClientSubscriptionInput) => platformApi.clients.updateSubscription(client._id, updates),
@@ -113,7 +114,7 @@ function SubscriptionTab({ client }: { client: PlatformClientDetail }) {
     const updates: UpdateClientSubscriptionInput = {};
     if (!sub) return;
     if (plan !== sub.plan) updates.plan = plan;
-    const before = [...(sub.products ?? [])].sort().join(',');
+    const before = [...productsOf(client)].sort().join(',');
     if ([...products].sort().join(',') !== before) updates.products = products;
     if (startDate && startDate !== (sub.startDate ?? '').slice(0, 10)) updates.startDate = startDate;
     const prevEnd = (sub.endDate ?? '').slice(0, 10);
@@ -163,21 +164,53 @@ function SubscriptionTab({ client }: { client: PlatformClientDetail }) {
   );
 }
 
+function CountMap({ label, counts }: { label: string; counts: Record<string, number> }) {
+  const entries = Object.entries(counts ?? {});
+  return (
+    <Typography variant="body2">
+      <strong>{label}:</strong> {entries.length === 0 ? 'none recorded' : entries.map(([k, v]) => `${k} ${v}`).join(' · ')}
+    </Typography>
+  );
+}
+
 function IntegrationsTab({ client }: { client: PlatformClientDetail }) {
+  const { banking, mpesa } = client;
+  const when = (d: string | null) => (d ? dateFormat(d, 'DD MMM YYYY HH:mm') : 'never');
   return (
     <Stack spacing={2}>
       <Alert severity="info">Stored evidence only. These records are read-only here and are separate from product entitlement.</Alert>
       <Card sx={{ p: 2.5 }}>
         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>Banking</Typography>
-        <EvidenceView data={client.banking ?? client.bankingSummary ?? null} />
+        <Stack spacing={0.5}>
+          <Typography variant="body2"><strong>Connections:</strong> {banking.connectionCount}{banking.providers.length ? ` (${banking.providers.join(', ')})` : ''} · <strong>Accounts:</strong> {banking.accountCount}</Typography>
+          <CountMap label="Connection status" counts={banking.connectionStatuses} />
+          <CountMap label="Account connection" counts={banking.accountConnectionStatuses} />
+          <CountMap label="Validation" counts={banking.validationStatuses} />
+          <Typography variant="body2">
+            <strong>Accounts with capability:</strong> poll {banking.capabilities.poll} · statement {banking.capabilities.statement} · balance {banking.capabilities.balance} · webhook {banking.capabilities.webhookIngest}
+          </Typography>
+          <Typography variant="body2"><strong>Last sync attempt:</strong> {when(banking.lastSyncAttemptAt)} · <strong>last success:</strong> {when(banking.lastSyncSuccessAt)}</Typography>
+        </Stack>
       </Card>
       <Card sx={{ p: 2.5 }}>
         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>M-PESA</Typography>
-        <EvidenceView data={client.mpesa ?? null} />
-        {client.mpesaProfiles && client.mpesaProfiles.length > 0 ? (
-          <Box sx={{ mt: 2 }}>
-            <EvidenceView data={client.mpesaProfiles} />
-          </Box>
+        <Stack spacing={0.5}>
+          <Typography variant="body2"><strong>Profiles:</strong> {mpesa.profileCount}</Typography>
+          <CountMap label="Operational state" counts={mpesa.operationalStates} />
+          <CountMap label="Callback capability" counts={mpesa.callbackCapabilities} />
+          <CountMap label="Pull capability" counts={mpesa.pullCapabilities} />
+        </Stack>
+        {mpesa.profiles && mpesa.profiles.length > 0 ? (
+          <Stack spacing={1} sx={{ mt: 2 }} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
+            {mpesa.profiles.map((p) => (
+              <Box key={p.id}>
+                <Typography variant="body2" fontWeight={600}>{p.displayName || p.businessShortCode} · {p.merchantType}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {p.operationalState} · callback {p.callbackCapability} · pull {p.pullCapability} · C2B {p.c2bRegistrationState} · pull registration {p.pullRegistrationState}
+                </Typography>
+              </Box>
+            ))}
+          </Stack>
         ) : null}
       </Card>
     </Stack>
@@ -194,11 +227,37 @@ function DiagnosticsTab({ clientId }: { clientId: string }) {
       <Alert severity="info">Read-only diagnostics. This is not impersonation: you cannot act as this client or its users.</Alert>
       <Card sx={{ p: 2.5 }}>
         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>Operational access</Typography>
-        <EvidenceView data={data.operationalAccess} />
+        <Stack spacing={0.75}>
+          <Typography variant="body2"><strong>Client:</strong> {data.operationalAccess.clientActive ? 'Active' : 'Inactive'}{data.operationalAccess.ordinaryOperationsBlocked ? ' — ordinary operations are blocked' : ''}</Typography>
+          {(['BANKING', 'MPESA'] as const).map((p) => {
+            const e = data.operationalAccess.entitlement?.[p];
+            return (
+              <Typography key={p} variant="body2">
+                <strong>{p === 'MPESA' ? 'M-PESA' : 'Banking'}:</strong> {e?.entitled ? 'Entitled' : `Not entitled — ${ENTITLEMENT_REASON_TEXT[e?.reason ?? ''] ?? e?.reason ?? 'unknown'}`}
+              </Typography>
+            );
+          })}
+          <Typography variant="caption" color="text.secondary">Payments and standard SMS do not depend on either product.</Typography>
+        </Stack>
       </Card>
       <Card sx={{ p: 2.5 }}>
         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>Background job outcomes</Typography>
-        <EvidenceView data={data.jobOutcomes} />
+        {data.jobOutcomes.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">No job outcomes reported.</Typography>
+        ) : (
+          <Stack spacing={1} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
+            {data.jobOutcomes.map((j) => (
+              <Box key={j.name}>
+                <Typography variant="body2" fontWeight={600}>{j.name}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Last run {j.lastRunAt ? dateFormat(j.lastRunAt, 'DD MMM YYYY HH:mm') : 'never'}
+                  {j.lastOutcome ? ` · ${j.lastOutcome.outcome}${j.lastOutcome.finishedAt ? ` at ${dateFormat(j.lastOutcome.finishedAt, 'DD MMM YYYY HH:mm')}` : ''}` : ' · no outcome reported'}
+                </Typography>
+                {j.lastOutcome?.forThisClient ? <EvidenceView data={j.lastOutcome.forThisClient} /> : null}
+              </Box>
+            ))}
+          </Stack>
+        )}
       </Card>
     </Stack>
   );
@@ -217,11 +276,11 @@ function ActivityTab({ clientId }: { clientId: string }) {
       ) : (
         <Stack divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />} spacing={1.5}>
           {rows.map((r, i) => (
-            <Box key={r._id ?? i}>
+            <Box key={r.id ?? i}>
               <Typography variant="body2" fontWeight={600}>{r.action}</Typography>
               <Typography variant="caption" color="text.secondary">
                 {r.createdAt ? dateFormat(r.createdAt, 'DD MMM YYYY HH:mm') : ''}
-                {typeof r.userId === 'object' && r.userId ? ` · ${r.userId.email ?? r.userId.name ?? ''}` : ''}
+                {r.actor?.email || r.actor?.name ? ` · ${r.actor.email ?? r.actor.name}` : ''}
               </Typography>
               {r.description ? <Typography variant="body2">{r.description}</Typography> : null}
             </Box>
@@ -250,7 +309,7 @@ export default function PlatformClientDetailPage() {
           <PageHeader
             title={data.name}
             description={data.owner?.email}
-            actions={<ProductChips products={data.subscription?.products ?? data.products} hasSubscription={data.hasSubscription !== false && Boolean(data.subscription ?? data.products)} />}
+            actions={<ProductChips products={productsOf(data)} hasSubscription={subscriptionState(data) !== 'MISSING'} />}
           />
           <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" scrollButtons="auto" sx={{ mb: 2 }}>
             {TABS.map((t) => (
