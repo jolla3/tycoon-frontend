@@ -457,3 +457,11 @@ The selected Tycoon client ID used by Superadmin is a request-scope/authorizatio
 **Current implementation status:** the reusable BankingSetupPanel and bank-connections API are in open frontend PR #4, not merged into main at audit time. Older implementation-status statements saying this lifecycle is already implemented are superseded by the source/branch state in this addendum.
 
 Detailed requirements FCOOP-FE-001 through FCOOP-FE-016, exact evidence, error semantics and acceptance matrix: [docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md](docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md).
+
+## 16. Co-op resource identity and token-flow clarification — 2026-11-20
+
+Co-op's supplied guide contains both a password-grant example and a separate CK/SK client_credentials PHP POST example. The frontend normal key-based flow collects Consumer Key and Consumer Secret only. Password grant is documented, not forbidden, but username/password are not mandatory for the client_credentials workflow. The browser must not choose the OAuth grant or token HTTP method.
+
+Account Validation does not return AccountName. The separate Mini Statement sample does return AccountName, ProductName, currency and balances, but the backend has not implemented that resource and the sample has no transaction array. The current UI must continue to distinguish a customer-entered internal account label from any future bank-reported metadata. Do not claim account ownership verification from an Account Validation success.
+
+The exact guide-to-frontend evidence register and future Mini Statement UI boundary are documented in docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md, sections 8 and 16.

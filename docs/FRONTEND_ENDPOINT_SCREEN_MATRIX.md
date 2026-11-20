@@ -574,3 +574,14 @@ Status values: IMPLEMENTED, BLOCKED BY BACKEND, NOT IMPLEMENTED. Verified with `
 Required IDs: FCOOP-FE-001 through FCOOP-FE-016. The full source evidence, detailed contract rationale and acceptance matrix are in docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md.
 
 No provider endpoint, OAuth token, access scope or operation capability may be invented in frontend code. Poll, balance and webhook controls remain unavailable until the backend explicitly reports them ready. Full Statement is independent from AccountTransactions polling.
+
+## 21. Co-op resource evidence versus frontend display
+
+| Provider resource/evidence | Actual sample fields | Current frontend rule |
+|---|---|---|
+| Account Validation POST /Enquiry/Validation/Account/1.0.0 | MessageReference, MessageDateTime, MessageCode, MessageDescription | Validation state only; no account name returned |
+| Mini Statement POST /Enquiry/MiniStatement/Account/1.0.0 | AccountName, ProductName, Currency, balances and account-summary data; no Transactions array shown | Not implemented by the audited backend; do not populate the current label or transaction list from an assumed call |
+| Account Transactions | NoOfTransactions string; item sample has TransactionReference, credit/debit amounts and no stable TransactionId in the sample | No polling UI until backend confirms stable identity and exposes poll=true |
+| Token examples | PHP shows CK/SK + POST form client_credentials; Java shows GET without explicit grant body; separate password example exists | No browser grant/method selector; backend owns and verifies token exchange |
+
+Current Register Account label must remain an internal Tycoon label. If a future backend change intentionally exposes Mini Statement AccountName, display it separately as bank-reported metadata and do not call it proof of account ownership unless Co-op confirms that meaning. Account Validation uses an 11-digit example while Mini Statement uses a 14-digit example; no global browser-side account-number length is established.

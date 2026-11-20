@@ -104,7 +104,13 @@ The normal form should collect only:
 1. Co-op Consumer Key (CK).
 2. Co-op Consumer Secret (SK).
 
-The Co-op 2.0.0 guide includes a client_credentials grant example using the CK/SK pair. It also documents password grant as a supported option. Therefore do not write that password grant is categorically unsupported. The correct product decision is narrower: username and password are not mandatory for the ordinary CK/SK connection workflow. A password-grant path may be introduced only when a specific Co-op resource contract and the bank’s authorization instructions require it. It must be an explicit, reviewed flow, not an unconditional pair of fields on every connection.
+The supplied guide contains more than one token-flow example, and they must not be collapsed into one assumed contract:
+
+- The DCR sample advertises client_credentials password refresh_token as grant types. The subsequent narrative demonstrates password grant and explicitly says another grant type may be used.
+- The separate PHP HOWTO uses CK/SK in HTTP Basic authentication and sends grant_type=client_credentials as a form-urlencoded POST body. That example demonstrates token acquisition without customer username/password.
+- The Java HOWTO shows a GET to the token endpoint without the explicit grant body, which conflicts with the PHP POST example.
+
+The frontend normal customer form is therefore specified as CK/SK only for the key-based client_credentials path. This does not mean password grant is unsupported or forbidden. It means password grant is a separately chosen integration mode, not a mandatory field pair on every connection. Do not add a grant selector or choose the HTTP method in the browser. The backend owns the configured grant and token request; the PHP POST/form example is the concrete request example to validate against Co-op sandbox. Do not infer that the Java GET form is equivalent or that one request method is universally supported without that verification.
 
 DCR administrator credentials are for registering an application through Dynamic Client Registration. They are not the normal customer’s Co-op account login and must not be collected in the Tycoon banking setup form. The frontend should not ask a customer for a DCR administrator username or password.
 
@@ -201,6 +207,18 @@ The current backend Co-op audit keeps AccountTransactions polling disabled becau
 ## 8. Account registration: account label is not bank-verified identity
 
 The current RegisterAccountDialog requires an Account name, sends accountName, and BankAccountCard displays that value. Co-op’s supplied Account Validation response confirms whether the account is valid; it does not return an account-holder name.
+
+The guide separately documents Mini Statement at POST /Enquiry/MiniStatement/Account/1.0.0. Its sample response includes AccountName, ProductName, Currency, cleared/booked/blocked/available balances and other account-summary fields. That is a different resource and response from Account Validation. The sample does not show a Transactions array. The companion backend audit records Mini Statement as not implemented, and the inspected registration workflow invokes Account Validation, not Mini Statement.
+
+Therefore:
+
+- Do not say Account Validation returns the account name.
+- Do not silently populate the current account label from an assumed Mini Statement call.
+- Keep the customer-entered value labelled as an internal Tycoon display label for the current workflow.
+- A later Mini Statement integration may expose a separately typed, sanitized bank-reported account name/summary through a backend DTO. The frontend should label it as **Name reported by Co-op**, not **verified account owner**, unless Co-op confirms that the field establishes ownership/authorization. Do not expose the raw provider payload.
+- Do not use Mini Statement as a transaction feed or present its sample balance fields as a verified live balance capability without a separate freshness, authorization and capability contract.
+
+The guide's own Account Validation sample uses 36001873000 (11 digits), while its Mini Statement example uses 12345678912345 (14 digits). This reinforces that account-number format must be confirmed per resource; the frontend must not hardcode one global length.
 
 The label entered in Tycoon is therefore customer-supplied metadata, not bank-verified identity. Rename the input to **Internal account label** or **Display label** and add helper text explaining that it is a Tycoon label and is not verified by Co-op. The account card should present it as a label, not as a confirmed account-holder name.
 
@@ -338,3 +356,24 @@ Use the repository's declared scripts: npm run typecheck, npm run lint, npm test
 Do not describe Co-op Connect 2.0.0 frontend integration as complete merely because the reusable panel renders or a BankConnection reaches Active. Completion requires the backend and frontend request names to agree, the CK/SK-only flow to pass, provider errors to remain correctly classified, unknown operations to remain disabled, selected-client isolation to pass, and provider sandbox verification to be recorded separately from local tests.
 
 No live bank credentials, OAuth token or provider payload is included in this audit.
+
+## 16. Exact Co-op guide evidence: what the frontend may and may not claim
+
+The following source distinctions are material to the frontend and supersede any shorter paraphrase above:
+
+| Co-op guide evidence | What it establishes | Frontend consequence |
+|---|---|---|
+| DCR request advertises client_credentials password refresh_token | The registration can advertise multiple grant types | Do not equate DCR administrator credentials with customer connection credentials |
+| Password-grant example sends username/password and scope with CK/SK Basic authentication | Password grant is documented | Do not make username/password mandatory for the key-based client_credentials flow; do not claim password grant is unsupported |
+| PHP HOWTO sends grant_type=client_credentials as a POST form body using CK/SK | A key-only application-token example exists | Normal customer form requests CK/SK; backend owns token exchange |
+| Java HOWTO shows GET without the explicit grant body | The supplied guide is internally inconsistent about token request method | No browser grant/method selector; backend verifies its chosen request against sandbox |
+| Account Validation response has MessageReference, MessageDateTime, MessageCode and MessageDescription | It proves the validation result only | It does not supply AccountName |
+| Mini Statement response sample includes AccountName, ProductName, Currency and balances | A separate resource can return account-summary/name fields in the sample | Not available in current form unless backend deliberately implements and exposes it |
+| Mini Statement sample has no Transactions array | The displayed sample is not transaction evidence | Never use that response as the Transactions list or bank-transaction import |
+| Mini Statement sample account number is 14 characters; Account Validation test example is 11 digits | The examples differ by resource | Do not impose one browser-side account-number length |
+| Account Transactions accepts NoOfTransactions as a string in its sample; limit maximum is shown as configurable up to 500 | Provider request serialization and limit are resource contract details | Frontend should not invent the limit or send direct provider requests |
+| Co-op sample snippets disable TLS verification | The HOWTO samples are not safe production TLS configuration | Frontend never calls Co-op; backend keeps certificate/hostname verification enabled |
+
+The frontend has no responsibility for token endpoint HTTP method, OAuth exchange, TLS, scopes, provider hosts, provider test accounts or provider request serialization. Those are backend/provider-adapter concerns and must be resolved there. UI status and account metadata must be based only on fields the backend has actually implemented and exposed.
+
+A frontend display called **Name reported by Co-op** is permitted only after the backend intentionally integrates Mini Statement (or another confirmed resource), returns a safe typed field and defines its semantics. It must not be inferred from the Account Validation success code.

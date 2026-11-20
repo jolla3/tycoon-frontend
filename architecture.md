@@ -461,3 +461,11 @@ The browser is a credential-entry and Tycoon API client only. It does not perfor
 - Provider error text is only rendered after backend sanitization; map stable codes to safe actionable messages.
 
 As of this audit, the panel and connection API are on open frontend PR #4, not main. See docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md for the source register, complete requirement IDs and acceptance tests.
+
+## 17. Co-op token-flow and account-name evidence boundary — 2026-11-20
+
+- Co-op's guide demonstrates CK/SK client_credentials in a PHP POST/form example and separately documents password grant. Password grant is not prohibited, but the ordinary key-based frontend form must not require username/password. The Java token example shows GET without the grant body and conflicts with the PHP example. The browser must not choose the method or grant; backend implementation and sandbox evidence own that decision.
+- Account Validation returns a validation acknowledgement, not AccountName.
+- Mini Statement is a separate documented resource whose sample contains AccountName and account-summary balances but no Transactions array. It is not implemented in the audited backend registration flow. Do not invent a browser-side call or populate the current account label from it.
+- If the backend later exposes Mini Statement metadata, use a safe typed DTO and label it as provider-reported. Do not call it verified account ownership unless Co-op confirms that meaning.
+- The guide's 11-digit Account Validation example and 14-digit Mini Statement example reinforce resource-specific account-number uncertainty. No global frontend length rule is authorized.
