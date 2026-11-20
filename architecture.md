@@ -583,3 +583,15 @@ Unknown, null and unverified financial values render as "Not available"; verifie
 ## Implementation status
 
 The frontend now implements the M-PESA public `/pay` page, operator link panel and review queue, the bank connection lifecycle, estate-scoped server-side filtering and the Platform V2 screens. The authoritative per-item status (IMPLEMENTED / BLOCKED BY BACKEND / NOT IMPLEMENTED), files and blockers are in section 19 of `docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md`. Nothing was exercised against a live backend.
+## Co-op Connect 2.0.0 frontend contract — effective state and operation policy
+
+The frontend consumes the existing Tycoon banking API. It does not call Co-op OAuth or resource endpoints directly.
+
+- Normal onboarding request: `credentialMaterial: { consumerKey, consumerSecret }`. Do not send customer banking passwords or user-entered scopes. CK/SK are Co-op application credentials, not Tycoon client ownership identifiers.
+- The BankAccount's own `connectionStatus` and account entitlements are not sufficient to authorize UI actions. Resolve the account's `connectionId` against the current live connection list or consume an explicit safe backend effective-state DTO. Require parent status `active`, the same selected Tycoon client and provider COOP. Missing parent fails closed.
+- Effective capability requires active parent + validated account + explicit account entitlement + provider readiness/lab policy. Missing/unknown values are unavailable.
+- `POST /bank/accounts/:id/sync` currently means Co-op FullStatement date-window sync. Gate it on statement capability and label it as statement-window sync. Poll capability belongs only to the separate AccountTransactions list operation, which remains disabled pending contract and identity proof.
+- HTTP 201 is not a provider-auth success signal by itself. Inspect returned BankConnection.status. A created record with status `failed` must render as failed.
+- Preserve ephemeral credential state on request error only when retry is useful; provide explicit discard, clear on close/cancel/success, and never persist secrets in query caches or browser storage.
+- Superadmin keeps explicit `clientId` query scoping and server authorization. After mutations, invalidate banking keys and `platformKeys.client(clientId)`.
+- Account name is an internal Tycoon label, not a Co-op verified account-holder name.

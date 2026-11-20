@@ -642,3 +642,28 @@ Status values: IMPLEMENTED, BLOCKED BY BACKEND, NOT IMPLEMENTED. Verified with `
 | Password reset, notifications, settings endpoints, automatic entitlement expiry | BLOCKED BY BACKEND | Not built. |
 | Visual redesign pass beyond the screens above | NOT IMPLEMENTED | No dedicated styling pass was done. |
 | Automated tests beyond formatting helpers | NOT IMPLEMENTED | Only `financial-values.test.ts` exists. No component or end-to-end tests. |
+## Co-op Connect 2.0.0 — frontend endpoint and screen acceptance (2026-11-20)
+
+**Implementation source baseline:** frontend `bd78e8867f2642d77333d1dfc1f408235e179bbf`; backend `2f1bad7fd674babf26fd86e51036a4be0ea06ad6`. These rows describe the open implementation branch as audited, not a claim that the required behaviour is present.
+
+| Screen/API surface | Current implementation behaviour | Required frontend contract | Backend dependency / test |
+|---|---|---|---|
+| New connection / reauthorize dialog | `CoopCredentialMaterial` sends clientId, clientSecret, username, password and optional scope. | Replace with CK/SK only: `consumerKey`, `consumerSecret`. No customer banking password or free-form scope. Add explicit discard after a failed request. | Backend strict schema and CK/SK token exchange; test body shape, invalid form state, failure retention and discard. |
+| Connection create result | Dialog closes on any successful HTTP response and assumes created resource is acceptable. | Inspect response status. HTTP 201 with `status: failed` must show failed authorization and safe reason, not active success. | Backend returns a public DTO with status; API/component test. |
+| Connection reauthorization | Same generic credential dialog; generic errors only. | Preserve old active version on failed reauth; show stable safe error category and do not imply promotion. | Backend staged secret/CAS lifecycle and typed errors; integration test for failed rotation. |
+| Account card | Receives BankAccount only; displays child `connectionStatus` and child entitlements. Does not join parent connection. | Join `connectionId` to live parent connection or consume an explicit effective-state DTO. Parent missing/inactive/mismatched disables operations. | Backend independently checks parent; test parent active, failed, reauth_required, disconnected, absent and wrong-owner cases. |
+| Sync action | `canSync = poll !== false`; label “Sync now”. | Require `statement === true` and active parent/readiness; label “Sync recent statement window”. Do not present this operation as AccountTransactions polling. | Backend sync strategy must require statement capability only; FE tests omitted/poll-only/statement-only cases. |
+| Statement import | Button gates on `statement !== false`; dialog checks connectivity only. | Require explicit statement entitlement and effective parent state. Backend decides lab/readiness and rechecks after provider response. | Backend manual import gate/race test. UI gate is only a usability layer. |
+| Account registration | Account label shown as a normal account name. | Describe it as an internal Tycoon display label; do not claim Co-op verified holder name. | Account Validation only establishes validity; copy test. |
+| Superadmin selected client | Requests include explicit clientId query scope; banking query keys are invalidated on mutations. | Preserve selected client scope; also invalidate `platformKeys.client(clientId)`. Do not use body clientId or cross-client query fallback. | Server `clientContext` and BANKING entitlement; cross-client isolation/cache tests. |
+| Entitlement display | Undefined poll/statement flags currently evaluate as enabled. | All unknown capabilities are disabled; explicit `=== true` only. | Backend capability/operational readiness DTO. |
+| Error presentation | Generic `ApiError.message` presentation. | Render stable safe categories without exposing provider raw message or secret material. | Backend typed error contract and log redaction. |
+
+### Frontend source evidence at the implementation baseline
+- `src/lib/api/bank-connections.ts`: credential interface lines 12–20.
+- `src/features/banking/banking-setup-panel.tsx`: current credential defaults and form lines 184–236; failure retains form state at 214–216; account-card capabilities and sync label at 270–309; parent connections and accounts are queried separately at 60–62 and accounts are rendered without a parent join at 118–121.
+- `src/lib/query/keys.ts`: `platformKeys.client(clientId)` at line 19; banking keys at lines 51–54.
+- `src/lib/api/banking.ts`: existing sync and statement Tycoon API routes at lines 30–33.
+
+### No frontend completion claim
+The baseline does not prove dedicated component/API tests, browser behaviour, provider sandbox behaviour or operational readiness. Those are separate acceptance gates.

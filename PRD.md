@@ -566,3 +566,33 @@ Unknown, null and unverified financial values render as "Not available"; verifie
 ## Implementation status
 
 The frontend now implements the M-PESA public `/pay` page, operator link panel and review queue, the bank connection lifecycle, estate-scoped server-side filtering and the Platform V2 screens. The authoritative per-item status (IMPLEMENTED / BLOCKED BY BACKEND / NOT IMPLEMENTED), files and blockers are in section 19 of `docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md`. Nothing was exercised against a live backend.
+## Co-op Connect 2.0.0 implementation gate — 2026-11-20
+
+This section defines the frontend target against the backend implementation baseline. It is a correction specification, not evidence that the open implementation PR already satisfies it.
+
+### Normal connection credentials
+- The ordinary Co-op connection form collects only Consumer Key (CK) and Consumer Secret (SK), represented in the Tycoon API as `consumerKey` and `consumerSecret`.
+- Do not collect customer username, password, PIN, OTP or a free-form OAuth scope. Co-op documents more than one grant; the selected grant and resource scope are provider configuration supported by resource evidence, not a landlord form field.
+- Do not confuse Co-op CK/SK with the selected Tycoon Client ID used for Superadmin request scoping or with `BankConnection.clientId` on the backend.
+- Secrets remain transient component state, never enter React Query or browser storage, and are cleared on close/cancel/success. When an API error retains them for a retry, expose an explicit discard/clear action and keep the UI copy accurate.
+
+### Connection and account state
+- A BankAccount's local validation/link state is not its parent BankConnection authentication state. The account card must derive effective state from the account's `connectionId` and the live connection list, or consume an explicit safe effective-state field returned by the backend.
+- Missing parent connection, mismatched client/provider, or any parent state other than active means every operation is unavailable. Do not use stale child `connectionStatus` or entitlement flags as authority.
+- A create response with HTTP 201 and `status: failed` means the resource was created but provider authorization failed. Render the failed state and safe error; do not show it as an active connection.
+- Failed reauthorization must leave the previous credential version active. Display the returned safe error category and do not imply that new credentials were promoted.
+
+### Operation labels and capabilities
+- Unknown/omitted capabilities fail closed: use explicit `=== true`, not `!== false`.
+- The existing Co-op sync endpoint currently selects a FullStatement date-window strategy. Its button must describe a recent statement-window sync and require `statement === true`; it must not claim to run AccountTransactions polling.
+- AccountTransactions polling remains unavailable until its transaction identity/list contract is verified. Balance and webhook controls remain unavailable until their resource and readiness gates are met.
+- Manual statement import requires the same effective parent state and readiness policy as the backend. The UI is not an authorization boundary; backend checks remain mandatory.
+- Label the entered account name as an internal Tycoon display label. Account Validation does not provide a verified account-holder name.
+
+### Superadmin scoping and cache
+- Every Superadmin bank request retains one explicit selected `clientId` query scope. Never move this value into request-body identity or a global/bypass route.
+- Mutations invalidate the selected client's banking connection/account queries and `platformKeys.client(clientId)`, so the platform summary cannot remain stale after connection or account changes.
+- Existing BANKING product entitlement and server-side `clientContext` enforcement remain mandatory.
+
+### Required frontend acceptance
+Test CK/SK-only validation and request bodies; failed-create response state; failed-reauthorization state; explicit secret discard after failure; parent active/failed/reauth-required/disconnected/missing cases; undefined capability denial; statement-vs-poll labels and gates; internal account-name copy; selected-client scoping; and client-summary cache invalidation. The implementation baseline has no dedicated banking panel/API suite proving these cases yet.
