@@ -257,6 +257,8 @@ The backend exposes link issuance and SMS-evidence processing routes, but M-PESA
 |---|---|---|---|---|
 | `GET /mpesa-collection/tenants/:tenantId/account` | Read tenant collection/account view | Tenant workspace integration if required | Authenticated client context | Missing UI |
 | `GET /mpesa-collection/tenants/:tenantId/payments` | Read posted tenant payment history | Tenant workspace integration if required | Authenticated client context | Missing UI |
+| `GET /mpesa-collection/tenants/:tenantId/references?page&limit` | Per-tenancy PayBill account numbers (active + retired, bounded); `no-store`; estate-scoped | Tenant workspace > M-PESA tab, `TenantReferencePanel` | Any MPESA-entitled role; estate-scoped | Implemented (browser-verified: NO; unit-tested helper only) |
+| `POST /mpesa-collection/tenants/:tenantId/references` `{tenancyId, merchantProfileId}` | Issue the reference for one explicit tenancy (503 if unique indexes not provisioned) | Same panel, "Issue account number" (server `canIssue`) | CLIENT_OWNER / CLIENT_ADMIN / SUPER_ADMIN | Implemented |
 | `GET /mpesa-collection/tenants/:tenantId/link` | Inspect link state, not recover prior token | Tenant workspace “M-PESA link” action | CLIENT_OWNER / CLIENT_ADMIN / SUPER_ADMIN with explicit client context | Missing UI |
 | `POST /mpesa-collection/tenants/:tenantId/link` | Issue/rotate link; returns token once | Tenant workspace: issue + copy/share URL | CLIENT_OWNER / CLIENT_ADMIN / SUPER_ADMIN with explicit client context | Missing UI |
 | `POST /mpesa-collection/tenants/:tenantId/link/revoke` | Revoke active token/link | Tenant workspace: revoke action | CLIENT_OWNER / CLIENT_ADMIN / SUPER_ADMIN with explicit client context | Missing UI |
@@ -667,3 +669,10 @@ Status values: IMPLEMENTED, BLOCKED BY BACKEND, NOT IMPLEMENTED. Verified with `
 
 ### No frontend completion claim
 The baseline does not prove dedicated component/API tests, browser behaviour, provider sandbox behaviour or operational readiness. Those are separate acceptance gates.
+
+
+## Review round 2 additions (frontend)
+
+- `ClientMpesaProfile.pullRegistrationEligible` (server fail-closed flag). While false the Superadmin panel shows why and never enables **Register Pull**; the nominated number can still be saved.
+- Manual-payment dialog: house selection is a debounced server-side search (`GET /houses?search&limit=20`), with no status filter (historic tenancies on vacant houses are selectable). Tenancy options still come from `GET /payments/manual-options` (`eligibleOptions`, `eligibleTotal`, paged `options`).
+- Browser evidence: Superadmin client Integrations tab was rendered in Chromium (dev server, faked API responses) at 360/390/768/1024/1280/1440 with no horizontal overflow. Tenants workspace, payments dialog and the reference panel were NOT visually checked.
