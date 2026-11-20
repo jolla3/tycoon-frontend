@@ -448,17 +448,22 @@ The frontend now implements the M-PESA public `/pay` page, operator link panel a
 
 ## 16. Co-op Connect 2.0.0 frontend integration boundary — 2026-11-20
 
+This section defines the required target contract. It must not be read as a statement that the current PR #4 form already implements it.
+
 The browser is a credential-entry and Tycoon API client only. It does not perform OAuth or call Co-op Connect directly.
 
-- The customer form collects Co-op Consumer Key (CK) and Consumer Secret (SK). Do not label these generic Client ID/Client secret because the Superadmin flow also has a Tycoon target clientId.
+- The **target** customer form collects Co-op Consumer Key (CK) and Consumer Secret (SK) only. Current PR #4 still renders generic Client ID/Client secret, Username, Password and optional Scope; its source must be changed before merge.
+- Do not label Co-op CK/SK as generic Client ID/Client secret because the Superadmin flow also has a Tycoon target clientId.
 - The Tycoon selected-client ID stays a separate request-scope value and is checked by backend SUPER_ADMIN authorization on every operation.
-- Send CK/SK only in authenticated POST JSON. Keep them in dialog-local state, never in React Query, query keys, browser storage, URLs, logs or telemetry. Clear on close/cancel/success.
+- Send CK/SK only in authenticated POST JSON. Keep them in dialog-local state, never in React Query, query keys, browser storage, URLs, logs or telemetry. Current PR #4 clears on close/cancel/success but retains values after API errors; add explicit discard or align the component comment and UX with the actual retry behavior.
 - The default grant and resource-specific scope are server configuration. Co-op documents password grant too, but the frontend must not make username/password mandatory for every connection.
 - A connection's Active state, an account's validation state, an operation's capability and the BANKING product entitlement are separate states.
-- Operation actions fail closed: poll and statement are available only when the corresponding account capability is explicitly true. Missing capability is not permission.
+- Operation actions fail closed. They also require the parent BankConnection to be active; account-level connected state alone is insufficient.
+- The current backend Sync operation is FullStatement date-window retrieval, not AccountTransactions polling. Gate and label it as a statement operation; do not use poll to authorize it.
 - User-entered account label is not a bank-verified account-holder name.
 - Keep the clientId in BankingSetupPanel API calls and query keys for selected-client isolation. Invalidate the parent platformKeys.client(targetClientId) summary after mutation.
 - Provider error text is only rendered after backend sanitization; map stable codes to safe actionable messages.
+- A create response with HTTP 201 may still have status: failed; treat that as authentication failure, not authorized connection.
 
 As of this audit, the panel and connection API are on open frontend PR #4, not main. See docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md for the source register, complete requirement IDs and acceptance tests.
 
@@ -469,3 +474,15 @@ As of this audit, the panel and connection API are on open frontend PR #4, not m
 - Mini Statement is a separate documented resource whose sample contains AccountName and account-summary balances but no Transactions array. It is not implemented in the audited backend registration flow. Do not invent a browser-side call or populate the current account label from it.
 - If the backend later exposes Mini Statement metadata, use a safe typed DTO and label it as provider-reported. Do not call it verified account ownership unless Co-op confirms that meaning.
 - The guide's 11-digit Account Validation example and 14-digit Mini Statement example reinforce resource-specific account-number uncertainty. No global frontend length rule is authorized.
+
+## 17. Co-op Banking effective state and operation semantics
+
+BankConnection.status and BankAccount.connectionStatus represent different resources. A BankAccount can remain locally marked connected after its parent BankConnection has been disconnected. The frontend must use the effective parent status for action availability and must never treat stale account-level flags as proof that the provider connection is usable.
+
+The current PR #4 panel needs to join each account's connectionId to the selected client's connection list (or consume a safe parent-status field from the backend). Account sync/statement controls require: valid account state, active parent connection, explicit operation entitlement, online connectivity and authorized role.
+
+The present Co-op /bank/accounts/:id/sync route uses FullStatement date-window retrieval. It must be presented and gated as a statement operation (statement === true), not as AccountTransactions polling (poll === true). Only a future, separately verified AccountTransactions strategy may use the poll entitlement.
+
+A 201 response from connection creation can describe a persisted connection whose status is failed because initial OAuth authentication failed. UI feedback must distinguish resource creation from provider authorization. Reauthorization failure must not imply that staged credentials replaced the active version.
+
+The authoritative detailed requirements and tests are in docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md, sections 17–19.

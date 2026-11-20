@@ -82,7 +82,7 @@ The supported lifecycle is two-stage:
 3. List accounts, request synchronization, and request a statement date range.
 4. Inspect imported bank transactions and assign unmatched transactions to houses when authorized.
 
-A connection and an account are separate backend resources. The current Banking screen skips the connection stage and posts an account without `connectionId`; that is a contract defect to fix before considering the workflow usable. Provider credential fields and reauthorization behavior must follow the backend schema. Do not invent a generic OAuth or credential form.
+A connection and an account are separate backend resources. **Historical main-baseline finding:** the pre-PR #4 Banking screen skipped the connection stage and posted an account without connectionId. Frontend PR #4 adds the connection-first lifecycle and sends connectionId; that part is present on the open implementation branch, not merged into main. PR #4 still has a separate credential-contract defect: it collects generic Client ID/Client secret plus mandatory username/password and optional scope, while the Co-op target normal flow is CK/SK only with grant and resource scopes owned by the backend. Do not treat the lifecycle wiring as proof that the Co-op credential flow is correct.
 
 The current statement endpoint returns stored/reconciled counts, not a statement transaction list. The UI must label that response honestly and direct operators to the Transactions screen for imported records.
 
@@ -123,7 +123,7 @@ The UI must preserve these domain distinctions:
 | Tenants | List, create/update/move, tenant workspace, deposits | Present; no M-PESA link controls |
 | Billing | Generate period charges and inspect house account | Generation is already wired from Estate Workspace → Billing tab; response type is incomplete and house-account rendering/types are stale |
 | Payments | List posted payments and record manual payments | Present |
-| Banking | Create/manage bank connections, register accounts, sync, inspect statement result | Partial; current connect form uses the wrong lifecycle |
+| Banking | Create/manage bank connections, register accounts, sync, inspect statement result | Main baseline was partial; open PR #4 adds connection/account lifecycle UI, but its credential fields, capability gates and effective disconnected-account state still require correction |
 | Transactions | List bank transactions and review/assign unmatched records | Present; estate filtering can be limited to the currently fetched page |
 | M-PESA public page | One public page for a tenant to paste and submit M-PESA SMS evidence using a one-time fragment token | New feature; no route, page, API wrapper, or form exists |
 | M-PESA operator controls | Inspect/issue/rotate/revoke a tenant link from the authenticated tenant workspace | New feature; backend routes exist, frontend is entirely missing |
@@ -465,3 +465,50 @@ Co-op's supplied guide contains both a password-grant example and a separate CK/
 Account Validation does not return AccountName. The separate Mini Statement sample does return AccountName, ProductName, currency and balances, but the backend has not implemented that resource and the sample has no transaction array. The current UI must continue to distinguish a customer-entered internal account label from any future bank-reported metadata. Do not claim account ownership verification from an Account Validation success.
 
 The exact guide-to-frontend evidence register and future Mini Statement UI boundary are documented in docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md, sections 8 and 16.
+
+## 17. Co-op frontend source-state and cross-layer corrections — 2026-11-20
+
+This section is an implementation cross-check, not a claim that the corrective code has landed.
+
+### 17.1 Credential form: target versus current PR #4 source
+
+The target ordinary Co-op connection form is **Consumer Key (CK) + Consumer Secret (SK) only**. It must not collect a retail-banking username/password, DCR administrator credentials, or a free-form generic scope. The browser sends the two keys to Tycoon's authenticated API; the backend owns token acquisition, grant selection and resource scopes.
+
+The open frontend PR #4 has **not** implemented that target yet. Its current CoopCredentialMaterial still contains clientId, clientSecret, username, password, and optional scope; its dialog renders all five fields and requires the first four. The request type and form must be updated together with the backend validator/factory/auth service. This document describes the required destination, not the current UI behavior.
+
+Credential cleanup must be stated exactly: the current dialog clears on close/cancel and successful submission. On an API error it intentionally retains the typed values in component state for correction/retry, but it has no explicit clear action even though its source comment mentions error-dismiss cleanup. Add a visible clear/discard action or correct the lifecycle design; never persist the values. On a create response with status: failed, the connection resource exists but OAuth authorization failed; do not present that as a successful bank authorization. Show the failed state and sanitized reason, then offer the supported reauthorization path.
+
+### 17.2 Effective account state includes the parent BankConnection
+
+A BankAccount's connectionStatus describes the account link/validation state. It is not the parent BankConnection's authorization state and must not be overloaded to represent both.
+
+As built in PR #4, the panel fetches connections and accounts separately, but BankAccountCard receives only the account and does not correlate account.connectionId with the parent connection status. Backend disconnect currently changes only BankConnection.status; linked BankAccounts can continue to report connectionStatus: connected with their previous entitlements. Their action buttons can therefore remain visible after the parent connection has been disconnected, even though backend requests should reject the inactive connection.
+
+Required frontend behavior:
+- Obtain the effective parent connection status for every displayed account, using a safe backend DTO field or a client-side join against the already fetched connection list.
+- Enable sync/statement actions only when the parent connection is explicitly active, the corresponding operation capability is explicitly true, the account validation state is valid, and the request is online.
+- Display a clear disconnected/reauthorization-required reason instead of presenting the account as ready.
+- Keep the selected Tycoon client scope in every request and cache key. Do not use a hidden button as authorization; backend checks remain mandatory.
+
+The backend must also check the parent connection for callbacks and recheck it before accepting a statement response. See the companion backend audit's parent-connection requirements.
+
+### 17.3 The current Sync action is not AccountTransactions polling
+
+The actual Co-op implementation behind POST /bank/accounts/:id/sync selects the FullStatement date-window strategy. It does not call the AccountTransactions list resource. However, PR #4 labels the button Sync now and gates it using entitlements.poll. The backend sync gate currently accepts either poll or statement, which is too broad for a FullStatement strategy.
+
+Lock the present contract as follows:
+- The existing Co-op sync strategy is FullStatement date-window retrieval and requires statement === true.
+- Rename the UI action to make that operation understandable (for example, Sync recent statement window) and gate it on statement capability plus active parent connection.
+- The date-range Import statement operation also requires statement === true.
+- poll belongs only to a future AccountTransactions polling strategy and must not authorize FullStatement.
+- Do not enable AccountTransactions polling until its stable transaction identity, ordering/checkpoint behavior and sandbox response have been verified.
+
+The frontend must not infer the backend strategy from the route name or from a generic sync label.
+
+### 17.4 Create and reauthorization outcomes
+
+The backend create controller returns HTTP 201 with a BankConnection DTO even when the service has persisted the connection with status: failed after token acquisition fails. A 201 therefore means that the connection resource was created; it does not necessarily mean Co-op authorization succeeded. The UI must inspect the returned status and distinguish active from failed.
+
+Reauthorization has a different failure path: the backend throws an error and preserves the prior credential version when staged authentication fails. The frontend must preserve the safe prior connection state, display a sanitized typed failure, and never imply that new credentials were promoted.
+
+Add dedicated component/API tests for CK/SK-only fields and payloads, returned failed create state, reauthorization failure, parent disconnect, strategy-specific capability gates, selected-client isolation and cache invalidation.

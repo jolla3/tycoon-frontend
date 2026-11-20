@@ -541,7 +541,7 @@ Status values: IMPLEMENTED, BLOCKED BY BACKEND, NOT IMPLEMENTED. Verified with `
 | Deposits with Idempotency-Key and double-submit guard | IMPLEMENTED | `features/deposits/deposit-panel.tsx` |
 | Billing generation result (`eligibleTenancies`, `partialPeriodExcluded`) | IMPLEMENTED | `estates/workspace` Billing tab |
 | Billing plan update with effective period and change reason | BLOCKED BY BACKEND | Update schema omits those fields. |
-| Bank connection lifecycle (create, reauthorize, disconnect), account registration, sync, statement | IMPLEMENTED | `app/(dashboard)/banking/page.tsx`, `lib/api/bank-connections.ts`, `lib/api/banking.ts`. Credentials live only in dialog state and are wiped on every exit path. |
+| Bank connection lifecycle (create, reauthorize, disconnect), account registration, sync, statement | IMPLEMENTED IN OPEN PR #4 ONLY | features/banking/banking-setup-panel.tsx, lib/api/bank-connections.ts, lib/api/banking.ts. Not present on main at the audited base. Current dialog clears on close/cancel/success but retains values in ephemeral component state after API errors; no explicit clear action exists despite the source comment. CK/SK-only contract is not yet implemented. Sync button currently uses the wrong capability semantics for the backend FullStatement strategy. |
 | Transactions list and unmatched (server-side estate filter, match and processing chips, entitlement state, cache keys, assignment scoped to estate) | IMPLEMENTED | `app/(dashboard)/transactions/**`, `lib/api/transactions.ts` |
 | Safe bank transaction and bank account response DTOs | BLOCKED BY BACKEND | See 18.1. The wrapper copying only displayed fields is defense in depth, not a fix. Bank account response exposure of internal fields was not re-verified in this branch. |
 | M-PESA public page | IMPLEMENTED | `app/(public)/pay/page.tsx`, `layout.tsx`. Token read from `#t=`, held in memory, fragment removed, no referrer, noindex. 202 is shown as "received, will be checked", never as paid. |
@@ -585,3 +585,15 @@ No provider endpoint, OAuth token, access scope or operation capability may be i
 | Token examples | PHP shows CK/SK + POST form client_credentials; Java shows GET without explicit grant body; separate password example exists | No browser grant/method selector; backend owns and verifies token exchange |
 
 Current Register Account label must remain an internal Tycoon label. If a future backend change intentionally exposes Mini Statement AccountName, display it separately as bank-reported metadata and do not call it proof of account ownership unless Co-op confirms that meaning. Account Validation uses an 11-digit example while Mini Statement uses a 14-digit example; no global browser-side account-number length is established.
+
+## 22. Co-op Banking effective-state corrections — 2026-11-20
+
+The Banking lifecycle in PR #4 must not be described as fully aligned simply because its route wrappers and resource IDs match.
+
+- **Credential implementation state:** PR #4 still sends clientId/clientSecret/username/password/scope. The target API type and dialog are CK/SK only (consumerKey/consumerSecret). This is a coordinated frontend/backend change and is not implemented by this documentation update.
+- **Create response:** HTTP 201 can contain a BankConnection with status: failed when OAuth failed. Treat the returned status as the authorization result; 201 only confirms resource creation.
+- **Credential cleanup:** success/close/cancel clear dialog state; API failure keeps the current values temporarily for retry. Add an explicit discard control or revise the UX. Do not claim current error-dismiss cleanup.
+- **Parent connection state:** join each account to its BankConnection or consume an explicit parent-status DTO field. A disconnected or inactive parent makes all account operations unavailable, even when the account's own connectionStatus/entitlements remain unchanged.
+- **Sync capability:** current backend Sync is FullStatement date-window retrieval, not AccountTransactions polling. Gate it on statement === true, not poll; label it accordingly. Reserve poll for a future verified AccountTransactions strategy.
+- **Manual statement import:** requires statement capability and a still-active parent connection for the full operation, not just at the start.
+- **Tests:** cover CK/SK request names, create status=failed, reauthorization failure, parent disconnect, statement-vs-poll gates, disconnect during provider retrieval, and selected-client cache invalidation.

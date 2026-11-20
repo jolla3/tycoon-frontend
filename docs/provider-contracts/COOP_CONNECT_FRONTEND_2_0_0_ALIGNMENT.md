@@ -377,3 +377,43 @@ The following source distinctions are material to the frontend and supersede any
 The frontend has no responsibility for token endpoint HTTP method, OAuth exchange, TLS, scopes, provider hosts, provider test accounts or provider request serialization. Those are backend/provider-adapter concerns and must be resolved there. UI status and account metadata must be based only on fields the backend has actually implemented and exposed.
 
 A frontend display called **Name reported by Co-op** is permitted only after the backend intentionally integrates Mini Statement (or another confirmed resource), returns a safe typed field and defines its semantics. It must not be inferred from the Account Validation success code.
+
+## 17. Parent-connection lifecycle and effective account capability
+
+An account is not operational merely because its BankAccount.connectionStatus still says connected. The parent BankConnection can be disconnected, failed or require reauthorization while account records retain their previous state.
+
+Current source facts:
+- The connection panel fetches BankConnection[] and BankAccount[], but BankAccountCard receives no parent status and does not join on connectionId.
+- connectionService.disconnect() changes only the BankConnection document. It does not update linked BankAccount connectionStatus or entitlement flags.
+- Sync and manual statement endpoints check the parent connection at request start, so the ordinary API request fails closed after disconnect. The frontend can nevertheless show enabled actions because the account DTO contains no effective parent state.
+- The inbound webhook route currently finds a connected BankAccount by account hash and checks webhookIngest, but it does not load the referenced parent BankConnection and require it to remain active. With stale account flags, a callback can still be ingested after disconnect.
+
+Required:
+1. Keep account-link status and parent connection authorization as separate concepts. Do not repurpose BankAccount.connectionStatus to mean the parent's status.
+2. Expose a safe parentConnectionStatus/effective-capability field in the BankAccount DTO, or have the frontend join the account to the already fetched connection list. Missing parent data is unavailable, not active.
+3. The frontend must gate statement actions on statement === true and active parent connection. The current Sync route is FullStatement-backed, not AccountTransactions polling; see section 18.
+4. Backend statement, sync and webhook paths must all verify the current parent BankConnection belongs to the same Tycoon client, has provider COOP and is active. Webhook handling must not trust stale account entitlement flags alone.
+5. Manual FullStatement import must re-check the parent connection after the provider call and before ingesting the returned items, so a disconnect during the network request cannot authorize a stale response to be committed.
+6. On disconnect, effective account capability must become unavailable immediately. Whether this is represented by a derived DTO or a persisted cascade is an implementation choice; preserve auditable account identity and avoid a non-atomic partial cascade.
+7. Add tests for disconnect before a request, disconnect during statement retrieval, stale account flags, missing/mismatched parent connection, and callback delivery after disconnect.
+
+## 18. Sync operation and entitlement semantics
+
+As built, POST /bank/accounts/:id/sync selects the Co-op full_statement_window strategy and calls FullStatement. It is not an AccountTransactions polling call. The frontend currently labels the operation Sync now and checks entitlements.poll; backend hasBankSyncEntitlement() accepts poll === true OR statement === true. Those semantics are inconsistent with the selected strategy.
+
+Required contract:
+- FullStatement date-window sync and manual date-range statement import require statement === true.
+- AccountTransactions incremental polling, once verified and enabled, requires poll === true.
+- One capability must never authorize a different provider resource.
+- The current FullStatement path must not advance or report an AccountTransactions polling checkpoint.
+- UI wording, operation result counts, backend authorization and audit metadata must identify the actual strategy/resource.
+- Apply the same provider readiness/lab policy to manual statement import and scheduled/manual sync. A stale statement: true account flag must not bypass the provider's current non-production lab or production readiness gate.
+- Keep Balance and webhook ingestion unavailable until their own contracts and operational readiness are confirmed.
+
+## 19. Connection creation outcome and secret lifecycle
+
+The create controller returns HTTP 201 with a persisted BankConnection even when the initial OAuth attempt fails; the DTO has status: failed and safe authMeta.lastAuthError. Do not interpret 201 alone as successful provider authorization. The UI should report resource creation separately from authentication failure and direct the operator to reauthorize or correct the stored connection.
+
+Reauthorization authenticates staged credentials before promotion and preserves the previous version on failure. Preserve this compare-and-set lifecycle. Its current catch flattens the failure to a generic BankAuthFailed; retain a safe stable error category/code for the UI while keeping secrets/provider payloads out of the response.
+
+Do not log/store callback Basic credentials or raw provider bodies as part of either flow.
