@@ -8,7 +8,7 @@
 // via `renderMobileCard` (stacked, per section 35) instead of squeezing
 // the desktop table into a phone width.
 
-import { useMediaQuery, useTheme, Table, TableHead, TableRow, TableCell, TableBody, Box, Stack, Skeleton } from '@mui/material';
+import { useMediaQuery, useTheme, Table, TableHead, TableRow, TableCell, TableBody, TableContainer, Box, Stack, Skeleton } from '@mui/material';
 import type { ReactNode } from 'react';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { ErrorState } from '@/components/feedback/error-state';
@@ -36,12 +36,15 @@ interface DataTableProps<T> {
 
 export function DataTable<T>({ columns, rows, rowKey, isLoading, error, emptyIcon, emptyTitle, emptyDescription, renderMobileCard, onRowClick }: DataTableProps<T>) {
   const theme = useTheme();
-  const isDesktop = useMediaQuery(theme.breakpoints.up('sm'));
+  // Dense tables switch to cards below `md` (tablet portrait included) so they never overflow the
+  // viewport; above it the table scrolls inside its own container instead of the page.
+  const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
 
   if (error) return <ErrorState error={error} />;
 
   if (isLoading) {
     return isDesktop ? (
+      <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
       <Table>
         <TableHead>
           <TableRow>
@@ -62,6 +65,7 @@ export function DataTable<T>({ columns, rows, rowKey, isLoading, error, emptyIco
           ))}
         </TableBody>
       </Table>
+      </TableContainer>
     ) : (
       <Stack spacing={1.5}>
         {Array.from({ length: 4 }).map((_, i) => (
@@ -80,6 +84,7 @@ export function DataTable<T>({ columns, rows, rowKey, isLoading, error, emptyIco
   }
 
   return (
+    <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
     <Table>
       <TableHead>
         <TableRow>
@@ -102,5 +107,6 @@ export function DataTable<T>({ columns, rows, rowKey, isLoading, error, emptyIco
         ))}
       </TableBody>
     </Table>
+    </TableContainer>
   );
 }

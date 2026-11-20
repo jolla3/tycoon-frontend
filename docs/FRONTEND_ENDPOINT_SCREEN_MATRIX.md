@@ -31,19 +31,23 @@ Frontend and backend review branches: `docs/superadmin-onboarding-and-history`. 
 |---|---|---|
 | New Tenant house selector | Dialog owns estate selection, paginates vacant houses, differentiates loading/error/empty; backend filters active/unoccupied houses and rechecks within transaction | Browser test and DB-backed occupancy/race test not run |
 | Superadmin Banking onboarding | Reuses customer Co-op credential and account registration UI in client detail; clientId supplied in query; SUPER_ADMIN added after clientContext + BANKING entitlement | Test active-client isolation, entitlement denial, credential redaction and reauthorization in browser/API |
-| Superadmin M-PESA merchant profiles | Current POST `/platform/clients/:clientId/mpesa-profiles` creates DRAFT BUY_GOODS_TILL with one estateId | Current API is narrower than target: PAYBILL, multi-estate mapping, PayBill references, callback-config snapshots and Pull MSISDN lifecycle are not implemented |
-| Transaction history | Existing Transactions page now has BANKING/M-PESA source selector based on subscription products; M-PESA uses canonical receipt API and safe DTO | M-PESA query-index readiness required; API scope/pagination tests and browser verification not run |
-| Superadmin responsive shell | Main content shrink/wrap, evidence scalar wrapping, health cards stack until large viewport | Visual viewport/overlay acceptance not run |
+| Superadmin M-PESA merchant profiles | POST `/platform/clients/:clientId/mpesa-profiles` creates a DRAFT `PAYBILL` or `BUY_GOODS_TILL` profile with `estateIds[]` (atomic mappings); the client page shows per-profile estate mappings (add/remove), shared callback-config version, separate C2B and Pull registration states/evidence, protected Pull number capture (masked) and explicit registration/reconcile actions. Stage labels are derived from backend evidence only (`src/features/platform/mpesa-profile-state.ts`) | Backend integration tests NOT EXECUTED (no replica set in the authoring environment); browser acceptance not run; Pull/C2B live registration never performed; callback authentication still unproven |
+| Transaction history | Existing Transactions page has BANKING/M-PESA source selector; M-PESA rows now show allocation state/reason and can be filtered by `allocationState`. Estate-restricted users receive only reference-allocated or verified-attributed receipts; UNALLOCATED receipts are visible only to client-wide scope and are never shown as posted rent | M-PESA query-index readiness required; DB-backed scope tests NOT EXECUTED; browser verification not run |
+| Superadmin responsive shell | Main content shrink/wrap, evidence scalar wrapping, health cards stack until large viewport; shared `DataTable` now uses cards below 900px and scrolls inside its own container above it; Superadmin dialogs go full-screen below 600px | Visual viewport/overlay acceptance NOT run (360/390/768/1024/1280/1440 untested in a browser) |
 
 ### New API contracts on backend review branch
 
-- Current `POST /platform/clients/:clientId/mpesa-profiles` accepts a numeric `businessShortCode`, optional `displayName` and one client-owned `estateId`. This is the current narrow slice, not the target request shape. The target must accept merchant type + multiple client-owned estate mappings atomically and must not accept credentials/capability/operational-state overrides.
-- `GET /mpesa-transactions` accepts `estateId`, page/limit, `verificationState`, `postingState`, `businessShortCode`, `startDate`, `endDate`; response is an allowlisted paginated canonical receipt DTO.
+- `POST /platform/clients/:clientId/mpesa-profiles` accepts `merchantType` (`PAYBILL`|`BUY_GOODS_TILL`), digits-only `businessShortCode`, optional `displayName` and `estateIds[]` (legacy single `estateId` still accepted). It rejects credentials/capability/operational-state fields (strict schema) and returns 409 when the shortcode is already owned on the platform.
+- `GET /platform/clients/:clientId/mpesa-profiles/:profileId`, `POST .../estates` `{estateId}`, `DELETE .../estates/:estateId`, `PUT .../pull-number` `{msisdn}` (response contains only `pullNominatedNumber: {captured, masked}`), `POST .../registrations/c2b|pull`, `POST .../registrations/:kind/reconcile` `{outcome}`, `GET|POST .../references`, `DELETE .../references/:referenceId`, `GET /platform/mpesa/callback-config`.
+- `GET /payments/manual-options` additionally accepts `page`, `limit` (<=50), `search` (tenant name) and returns `eligibleOptions` (all period-covering tenancies) plus a paginated `options` list.
+- `GET /mpesa-transactions` accepts `estateId`, page/limit, `verificationState`, `postingState`, `allocationState`, `businessShortCode`, `startDate`, `endDate`; response is an allowlisted paginated canonical receipt DTO that includes `allocationState`, `allocationReason` and `allocatedEstateId`.
 - Existing `/bank/connections` and `/bank/accounts` now accept selected `clientId` in query for Superadmin flows; request bodies remain free of clientId.
 
-### Remaining known issue
+### Remaining known issues
 
-The manual-payment history picker still exposes only the latest 50 tenancies while the backend resolver considers all eligible tenancies. This separate P0 edge case has not been fixed by this review branch.
+- The manual-payment latest-50 mismatch is fixed in code: the resolver and the form use `eligibleOptions` (every period-covering tenancy) and the browsable list is paginated/searchable. DB-backed tests are NOT EXECUTED.
+- The manual-payment house picker still loads the first 100 occupied houses and tells the user when more exist; it has no search.
+- No UI exists yet for assigning references to tenants or sending them (backend routes exist). Callback authentication, Pull eligibility and Pull transaction-type fixtures remain unverified.
 
 ## Design review hardening — 2026-11-19
 

@@ -4,6 +4,8 @@ import type { Paginated } from '@/types/api';
 export type MpesaVerificationState = 'UNVERIFIED' | 'MATCHED' | 'CONFLICT' | 'MANUAL_REVIEW';
 export type MpesaPostingState = 'NOT_POSTED' | 'PROCESSING' | 'POSTED' | 'FAILED_RETRYABLE' | 'FAILED_TERMINAL';
 
+export type MpesaAllocationState = 'UNALLOCATED' | 'ALLOCATED_BY_REFERENCE' | 'ALLOCATED_BY_EVIDENCE';
+
 export interface MpesaTransactionRow {
   id: string;
   merchantProfileId: string | null;
@@ -21,6 +23,10 @@ export interface MpesaTransactionRow {
   postingState: MpesaPostingState;
   postedAt: string | null;
   attributedEstateId: string | null;
+  /** Routing state only: UNALLOCATED is NOT a posted rent payment. */
+  allocationState: MpesaAllocationState;
+  allocationReason: string | null;
+  allocatedEstateId: string | null;
   createdAt: string;
 }
 
@@ -30,6 +36,7 @@ export interface MpesaTransactionQuery {
   limit?: number;
   verificationState?: MpesaVerificationState;
   postingState?: MpesaPostingState;
+  allocationState?: MpesaAllocationState;
   businessShortCode?: string;
   startDate?: string;
   endDate?: string;

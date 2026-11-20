@@ -10,7 +10,8 @@ import { DataTable, type DataTableColumn } from '@/components/data-display/data-
 import { MatchStatusChip, ProcessingStateChip } from '@/components/data-display/status-chip';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { transactionsApi } from '@/lib/api/transactions';
-import { mpesaTransactionsApi, type MpesaTransactionRow, type MpesaVerificationState, type MpesaPostingState } from '@/lib/api/mpesa-transactions';
+import { mpesaTransactionsApi, type MpesaTransactionRow, type MpesaVerificationState, type MpesaPostingState, type MpesaAllocationState } from '@/lib/api/mpesa-transactions';
+import { allocationLabel, allocationReasonText } from '@/features/mpesa/allocation-state';
 import { subscriptionApi } from '@/lib/api/subscription';
 import { formatCents } from '@/lib/formatting/currency';
 import { dateFormat } from '@/lib/dates/period';
@@ -40,6 +41,7 @@ export default function TransactionsPage() {
   const [matchStatus, setMatchStatus] = useState<'' | MatchStatus>('');
   const [verificationState, setVerificationState] = useState<'' | MpesaVerificationState>('');
   const [postingState, setPostingState] = useState<'' | MpesaPostingState>('');
+  const [allocationState, setAllocationState] = useState<'' | MpesaAllocationState>('');
   const [page, setPage] = useState(1);
 
   const subscription = useQuery({
@@ -62,12 +64,13 @@ export default function TransactionsPage() {
   );
 
   const mpesaQuery = useCachedQuery(
-    `${identity}:mpesa-transactions:${estateId || 'all'}:${verificationState || 'all'}:${postingState || 'all'}:${page}`,
-    [...mpesaKeys.transactions(estateId || undefined, { identity, verificationState, postingState, page })],
+    `${identity}:mpesa-transactions:${estateId || 'all'}:${verificationState || 'all'}:${postingState || 'all'}:${allocationState || 'all'}:${page}`,
+    [...mpesaKeys.transactions(estateId || undefined, { identity, verificationState, postingState, allocationState, page })],
     () => mpesaTransactionsApi.list({
       estateId: estateId || undefined,
       verificationState: verificationState || undefined,
       postingState: postingState || undefined,
+      allocationState: allocationState || undefined,
       page,
       limit: 20,
     }),
@@ -115,10 +118,16 @@ export default function TransactionsPage() {
   const mpesaColumns: DataTableColumn<MpesaTransactionRow>[] = [
     { key: 'date', header: 'Date', render: (t) => dateFormat(t.transactionAt, 'DD MMM YYYY HH:mm') },
     { key: 'receipt', header: 'Receipt', render: (t) => t.receiptNumber },
-    { key: 'till', header: 'Till', render: (t) => t.businessShortCode },
+    { key: 'till', header: 'Shortcode', render: (t) => t.businessShortCode },
     { key: 'reference', header: 'Bill reference', render: (t) => t.billRefNumber || '—' },
     { key: 'amount', header: 'Amount', align: 'right', render: (t) => formatCents(t.amountCents, t.currency) },
     { key: 'verification', header: 'Verification', render: (t) => <Chip size="small" variant="outlined" label={verificationLabel(t.verificationState)} color={t.verificationState === 'MATCHED' ? 'success' : t.verificationState === 'CONFLICT' ? 'error' : 'warning'} /> },
+    { key: 'allocation', header: 'Allocation', render: (t) => (
+      <Stack spacing={0.25}>
+        <Chip size="small" variant="outlined" label={allocationLabel(t.allocationState)} color={t.allocationState === 'UNALLOCATED' ? 'warning' : 'info'} />
+        {allocationReasonText(t.allocationReason) ? <Typography variant="caption" color="text.secondary">{allocationReasonText(t.allocationReason)}</Typography> : null}
+      </Stack>
+    ) },
     { key: 'posting', header: 'Rent posting', render: (t) => <Chip size="small" variant="outlined" label={postingLabel(t.postingState)} color={t.postingState === 'POSTED' ? 'success' : t.postingState === 'FAILED_TERMINAL' ? 'error' : 'default'} /> },
   ];
 
@@ -126,7 +135,7 @@ export default function TransactionsPage() {
     <>
       <PageHeader
         title="Transactions"
-        description={source === 'BANKING' ? 'Imported bank transactions across connected accounts' : 'Canonical M-PESA Till receipts and their verification / rent-posting states'}
+        description={source === 'BANKING' ? 'Imported bank transactions across connected accounts' : 'Canonical M-PESA receipts with allocation, verification and rent-posting states. Unallocated receipts are not rent payments.'}
         actions={source === 'BANKING' ? <Chip component={Link} href="/transactions/unmatched" clickable label="Review unmatched" color="warning" variant="outlined" /> : undefined}
       />
 
@@ -164,6 +173,12 @@ export default function TransactionsPage() {
                 <MenuItem value="MATCHED">Matched</MenuItem>
                 <MenuItem value="CONFLICT">Conflict</MenuItem>
                 <MenuItem value="MANUAL_REVIEW">Manual review</MenuItem>
+              </Select>
+              <Select size="small" displayEmpty value={allocationState} onChange={(e) => { setAllocationState(e.target.value as typeof allocationState); setPage(1); }} sx={{ minWidth: 170 }}>
+                <MenuItem value="">Any allocation</MenuItem>
+                <MenuItem value="UNALLOCATED">Unallocated</MenuItem>
+                <MenuItem value="ALLOCATED_BY_REFERENCE">Allocated by reference</MenuItem>
+                <MenuItem value="ALLOCATED_BY_EVIDENCE">Allocated by evidence</MenuItem>
               </Select>
               <Select size="small" displayEmpty value={postingState} onChange={(e) => { setPostingState(e.target.value as typeof postingState); setPage(1); }} sx={{ minWidth: 170 }}>
                 <MenuItem value="">Any rent posting state</MenuItem>
@@ -208,14 +223,14 @@ export default function TransactionsPage() {
             error={error}
             emptyIcon={ArrowLeftRight}
             emptyTitle="No M-PESA receipts found"
-            emptyDescription="No canonical Till receipts match this estate and status filter. Tenant SMS submissions are shown separately in the M-PESA submissions review queue."
+            emptyDescription="No receipts match this scope and filter. Estate-scoped users see only receipts allocated to their estates; unallocated receipts are visible to client-wide owners and admins."
             renderMobileCard={(t) => (
               <Card variant="outlined" sx={{ p: 2 }}>
                 <Stack direction="row" justifyContent="space-between">
                   <Typography fontWeight={600}>{formatCents(t.amountCents, t.currency)}</Typography>
                   <Chip size="small" variant="outlined" label={verificationLabel(t.verificationState)} color={t.verificationState === 'MATCHED' ? 'success' : 'warning'} />
                 </Stack>
-                <Typography variant="body2" color="text.secondary">{t.receiptNumber} · Till {t.businessShortCode}</Typography>
+                <Typography variant="body2" color="text.secondary">{t.receiptNumber} · {t.businessShortCode} · {allocationLabel(t.allocationState)}</Typography>
                 <Typography variant="caption" color="text.secondary">{dateFormat(t.transactionAt, 'DD MMM YYYY HH:mm')} · {postingLabel(t.postingState)}</Typography>
               </Card>
             )}

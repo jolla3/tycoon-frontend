@@ -277,4 +277,5 @@ export const apiClient = {
     apiRequest<T>(path, { method: 'POST', body, signal, ...extra }),
   patch: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PATCH', body, signal }),
   put: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PUT', body, signal }),
+  delete: <T>(path: string, signal?: AbortSignal) => apiRequest<T>(path, { method: 'DELETE', signal }),
 };

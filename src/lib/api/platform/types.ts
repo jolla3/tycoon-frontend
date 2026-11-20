@@ -80,31 +80,72 @@ export interface ClientBankingSummary {
   lastSyncSuccessAt: string | null;
 }
 
-/** Safe M-PESA merchant profile (no credentials, no tokens). */
+export type MpesaMerchantType = 'PAYBILL' | 'BUY_GOODS_TILL';
+
+/** Create body. `estateIds` are same-client estates; the backend verifies ownership. */
 export interface CreateMpesaProfileInput {
+  merchantType: MpesaMerchantType;
   displayName?: string;
-  /** Client's Buy Goods Till / shortcode, not Tycoon's platform Daraja credentials. */
+  /** Client's PayBill / Till shortcode, not Tycoon's platform Daraja credentials. */
   businessShortCode: string;
-  /** Current G5 posting model maps a Till profile to one estate. */
-  estateId: string;
+  estateIds: string[];
 }
 
+export interface MpesaRegistrationEvidence {
+  environment: string | null;
+  configId: string | null;
+  configVersion: string | null;
+  attemptedAt: string | null;
+  succeededAt: string | null;
+}
+
+/** Safe M-PESA merchant profile (no credentials, no tokens, never the nominated number). */
 export interface ClientMpesaProfile {
   id: string;
   clientId: string;
+  /** DEPRECATED legacy single-estate field; mappings in `estates` are authoritative. */
   estateId: string | null;
   displayName: string | null;
-  merchantType: string;
+  merchantType: MpesaMerchantType | string;
   businessShortCode: string;
   operationalState: MpesaOperationalState;
   callbackCapability: MpesaCapability;
   pullCapability: MpesaCapability;
   c2bRegistrationState: MpesaRegistrationState;
   pullRegistrationState: MpesaRegistrationState;
+  c2bRegistration?: MpesaRegistrationEvidence | null;
+  pullRegistration?: MpesaRegistrationEvidence | null;
+  pullNominatedNumber?: { captured: boolean; masked: string | null };
   lastPullRegisteredAt: string | null;
   createdAt?: string;
   updatedAt?: string;
+  /** Present on the single-profile GET and on mutation results; absent on list summaries. */
+  estates?: Array<{ estateId: string; status: 'ACTIVE' | 'INACTIVE' }>;
   ingestionEvidence?: Record<string, { lastReceivedAt: string; lastState: string; total: number }>;
+}
+
+export interface MpesaCallbackConfig {
+  configured: boolean;
+  reason?: string;
+  environment: string;
+  configId?: string;
+  version?: string;
+  confirmationUrl?: string;
+  validationUrl?: string;
+  pullResultsUrl?: string;
+}
+
+export interface MpesaCollectionReferenceRow {
+  id: string;
+  merchantProfileId: string;
+  estateId: string;
+  tenantId: string;
+  tenancyId: string;
+  reference: string;
+  status: 'ACTIVE' | 'RETIRED';
+  retiredAt: string | null;
+  retiredReason: string | null;
+  createdAt?: string;
 }
 
 export interface ClientMpesaSummary {

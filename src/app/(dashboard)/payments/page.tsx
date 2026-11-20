@@ -162,10 +162,13 @@ function RecordPaymentDialog({
   const [reference, setReference] = useState('');
   const [period, setPeriod] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).slice(0, 7));
   const [selectedTenancyId, setSelectedTenancyId] = useState('');
+  const [optPage, setOptPage] = useState(1);
+  const [optSearch, setOptSearch] = useState('');
   const periodValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
   const optionsQuery = useQuery({
-    queryKey: ['payments', 'manual-options', houseId, period],
-    queryFn: () => paymentsApi.manualOptions({ houseId, period }),
+    queryKey: ['payments', 'manual-options', houseId, period, optPage, optSearch],
+    queryFn: () => paymentsApi.manualOptions({ houseId, period, page: optPage, limit: 10, search: optSearch.trim() || undefined }),
+    placeholderData: (prev) => prev,
     enabled: open && Boolean(houseId) && periodValid,
     staleTime: 0,
   });
@@ -201,7 +204,7 @@ function RecordPaymentDialog({
           {!canReach && <Alert severity="warning">Recording a payment requires connectivity.</Alert>}
           {formError && <Alert severity="error">{formError}</Alert>}
           {success && <Alert severity="success">{success}</Alert>}
-          <Select displayEmpty value={houseId} onChange={(e) => { setHouseId(e.target.value); setSelectedTenancyId(''); }} fullWidth>
+          <Select displayEmpty value={houseId} onChange={(e) => { setHouseId(e.target.value); setSelectedTenancyId(''); setOptPage(1); setOptSearch(''); }} fullWidth>
             <MenuItem value="">Select house</MenuItem>
             {(housesPage?.items ?? []).map((h) => (
               <MenuItem key={h._id} value={h._id}>
@@ -214,7 +217,7 @@ function RecordPaymentDialog({
             label="Rent month"
             type="month"
             value={period}
-            onChange={(e) => { setPeriod(e.target.value); setSelectedTenancyId(''); }}
+            onChange={(e) => { setPeriod(e.target.value); setSelectedTenancyId(''); setOptPage(1); setOptSearch(''); }}
             InputLabelProps={{ shrink: true }}
             error={!periodValid}
             helperText="The month this payment is for. It decides which tenancy is charged."
@@ -239,6 +242,14 @@ function RecordPaymentDialog({
                 {choice.options.map((o) => (
                   <div key={o.tenancyId}>{describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}{o.reason ? ` — ${o.reason}` : ''}</div>
                 ))}
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  <TextField size="small" label="Search tenancies by tenant name" value={optSearch} onChange={(e) => { setOptSearch(e.target.value); setOptPage(1); }} />
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Button size="small" disabled={optPage <= 1} onClick={() => setOptPage((n) => Math.max(1, n - 1))}>Newer</Button>
+                    <Typography variant="caption">Page {optPage}{optionsQuery.data?.total != null ? ` · ${optionsQuery.data.total} tenancies` : ''}</Typography>
+                    <Button size="small" disabled={!optionsQuery.data?.hasMore} onClick={() => setOptPage((n) => n + 1)}>Older</Button>
+                  </Stack>
+                </Stack>
               </Alert>
             )
           ) : null}

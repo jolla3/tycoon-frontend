@@ -5,7 +5,7 @@ import { openWorkspace } from '@/lib/navigation/workspace';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, Button, Stack, TextField, Select, MenuItem, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Chip, Box, Pagination } from '@mui/material';
+import { Card, Button, Stack, TextField, Select, MenuItem, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Typography, Chip, Box, Pagination, useMediaQuery, useTheme } from '@mui/material';
 import { Users, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
@@ -386,13 +386,17 @@ function CreateTenantDialog({
   const [houseId, setHouseId] = useState('');
   const [selectedEstateId, setSelectedEstateId] = useState(estateId);
   const [housePage, setHousePage] = useState(1);
+  const [houseSearch, setHouseSearch] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
 
   // The dialog owns estate selection. The page-level filter only provides a default.
   useEffect(() => {
     if (open) {
       setSelectedEstateId(estateId || '');
       setHousePage(1);
+      setHouseSearch('');
       setHouseId('');
       setFormError(null);
     }
@@ -400,10 +404,11 @@ function CreateTenantDialog({
 
   const housesQuery = useQuery({
     queryKey: estateKeys.houses(selectedEstateId || undefined, {
-      purpose: 'tenant-create', status: 'vacant', page: housePage,
+      purpose: 'tenant-create', status: 'vacant', page: housePage, search: houseSearch.trim(),
     }),
     queryFn: () => housesApi.list({
-      estateId: selectedEstateId, status: 'vacant', page: housePage, limit: 100,
+      estateId: selectedEstateId, status: 'vacant', page: housePage, limit: 25,
+      search: houseSearch.trim() || undefined,
     }),
     enabled: open && Boolean(selectedEstateId),
     staleTime: 0,
@@ -412,7 +417,15 @@ function CreateTenantDialog({
   const vacantForEstate = houses?.items ?? [];
 
   const mutation = useMutation({
-    mutationFn: () => tenantsApi.create({ name: name.trim(), phone: phone.trim(), houseId }),
+    mutationFn: async () => {
+      // Revalidate vacancy immediately before submitting: another user may have assigned the
+      // house since this page was loaded. The server still enforces the assignment atomically.
+      const fresh = await housesQuery.refetch();
+      if (!fresh.data?.items.some((h) => h._id === houseId)) {
+        throw new ApiError('This house is no longer vacant. Choose another house.', 'HOUSE_NOT_VACANT', 409);
+      }
+      return tenantsApi.create({ name: name.trim(), phone: phone.trim(), houseId });
+    },
     onSuccess: () => {
       onCreated();
       setName('');
@@ -420,11 +433,16 @@ function CreateTenantDialog({
       setHouseId('');
       onClose();
     },
-    onError: (err) => setFormError(err instanceof ApiError ? err.message : 'Unable to create tenant.'),
+    onError: (err) => {
+      setFormError(err instanceof ApiError ? err.message : 'Unable to create tenant.');
+      // A conflict means the vacancy list is stale: clear the choice and reload it.
+      setHouseId('');
+      void housesQuery.refetch();
+    },
   });
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={fullScreen}>
       <DialogTitle>New Tenant</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
@@ -457,10 +475,15 @@ function CreateTenantDialog({
               {housesQuery.error instanceof ApiError ? housesQuery.error.message : 'Could not load houses for this estate.'}
               <Button size="small" onClick={() => void housesQuery.refetch()}>Retry</Button>
             </Alert>
-          ) : houses && houses.pagination.total === 0 ? (
+          ) : houses && houses.pagination.total === 0 && !houseSearch.trim() ? (
             <Alert severity="info">No active vacant houses are available in this estate.</Alert>
           ) : houses ? (
             <>
+              <TextField
+                size="small" label="Search house number" value={houseSearch}
+                onChange={(e) => { setHouseSearch(e.target.value); setHousePage(1); setHouseId(''); }}
+              />
+              {houses.pagination.total === 0 ? <Alert severity="info">No vacant house matches this search.</Alert> : null}
               <TextField select label="Vacant house" value={houseId} onChange={(e) => setHouseId(e.target.value)} required>
                 <MenuItem value="">Select vacant house</MenuItem>
                 {vacantForEstate.map((house) => (
@@ -491,7 +514,7 @@ function CreateTenantDialog({
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={!name.trim() || !phone.trim() || !selectedEstateId || !houseId || mutation.isPending || housesQuery.isLoading || Boolean(housesQuery.error)}
+          disabled={!name.trim() || !phone.trim() || !selectedEstateId || !houseId || mutation.isPending || housesQuery.isLoading || housesQuery.isFetching || Boolean(housesQuery.error)}
           onClick={() => { setFormError(null); mutation.mutate(); }}
         >
           {mutation.isPending ? 'Creating…' : 'Create'}

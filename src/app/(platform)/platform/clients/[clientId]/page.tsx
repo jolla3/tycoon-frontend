@@ -19,6 +19,7 @@ import { platformApi, type PlatformClientDetail, type PlatformPlan, type Product
 import { platformKeys } from '@/lib/query/keys';
 import { dateFormat } from '@/lib/dates/period';
 import { BankingSetupPanel } from '@/features/banking/banking-setup-panel';
+import { ClientMpesaProfilePanel } from '@/features/platform/client-mpesa-profile-panel';
 import { ClientMpesaProfileCreate } from '@/features/platform/client-mpesa-profile-create';
 
 const TABS = ['Overview', 'Products & Subscription', 'Integrations', 'Diagnostics', 'Activity'] as const;
@@ -180,7 +181,7 @@ function IntegrationsTab({ client }: { client: PlatformClientDetail }) {
   const when = (d: string | null) => (d ? dateFormat(d, 'DD MMM YYYY HH:mm') : 'never');
   return (
     <Stack spacing={2}>
-      <Alert severity="info">Manage this client's integration records here. Product entitlement and provider readiness remain separate checks.</Alert>
+      <Alert severity="info">Manage this client&apos;s integration records here. Product entitlement and provider readiness remain separate checks.</Alert>
       <Card sx={{ p: 2.5 }}>
         <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>Banking</Typography>
         <Stack spacing={0.5}>
@@ -209,12 +210,7 @@ function IntegrationsTab({ client }: { client: PlatformClientDetail }) {
         {mpesa.profiles && mpesa.profiles.length > 0 ? (
           <Stack spacing={1} sx={{ mt: 2 }} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
             {mpesa.profiles.map((p) => (
-              <Box key={p.id}>
-                <Typography variant="body2" fontWeight={600}>{p.displayName || p.businessShortCode} · {p.merchantType}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {p.operationalState} · callback {p.callbackCapability} · pull {p.pullCapability} · C2B {p.c2bRegistrationState} · pull registration {p.pullRegistrationState}
-                </Typography>
-              </Box>
+              <ClientMpesaProfilePanel key={p.id} clientId={client._id} profile={p} />
             ))}
           </Stack>
         ) : null}
