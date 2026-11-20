@@ -58,6 +58,8 @@ export const mpesaKeys = {
   transactions: (estateId: string | undefined, filters?: Filters) => ['mpesa', 'transactions', estateKeys.scope(estateId), filters ?? {}] as const,
   link: (tenantId: string) => ['mpesa', 'link', tenantId] as const,
   linkFamily: () => ['mpesa', 'link'] as const,
+  references: (tenantId: string, page: number) => ['mpesa', 'references', tenantId, page] as const,
+  referencesFamily: () => ['mpesa', 'references'] as const,
   submissions: (clientId: string | undefined, filters?: Filters) => ['mpesa', 'submissions', clientId ?? 'own', filters ?? {}] as const,
   submissionsFamily: () => ['mpesa', 'submissions'] as const,
 };

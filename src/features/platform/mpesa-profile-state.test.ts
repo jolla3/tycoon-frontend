@@ -41,8 +41,11 @@ describe('registrationActions', () => {
   });
   it('Pull needs the protected number and is one-time', () => {
     expect(registrationActions(base(), true).canRegisterPull).toBe(false);
-    const withNumber = base({ pullNominatedNumber: { captured: true, masked: '2547*****678' } });
+    const withNumber = base({ pullNominatedNumber: { captured: true, masked: '2547*****678' }, pullRegistrationEligible: true });
     expect(registrationActions(withNumber, true).canRegisterPull).toBe(true);
+    // Fail closed: number captured but merchant-type eligibility unverified => never offered.
+    expect(registrationActions({ ...withNumber, pullRegistrationEligible: false }, true).canRegisterPull).toBe(false);
+    expect(registrationActions({ ...withNumber, pullRegistrationEligible: undefined }, true).canRegisterPull).toBe(false);
     expect(registrationActions({ ...withNumber, pullRegistrationState: 'ACCEPTED' }, true).canRegisterPull).toBe(false);
     expect(registrationActions({ ...withNumber, pullRegistrationState: 'ACCEPTED' }, true).canSetPullNumber).toBe(false);
   });

@@ -153,6 +153,11 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
           </Button>
         </Stack>
       ) : null}
+      {!actions.pullEligible ? (
+        <Alert severity="info" sx={{ mt: 0.75 }}>
+          Pull registration is disabled for this merchant type: no official provider evidence or controlled sandbox observation confirms eligibility yet. The number can be saved, but nothing is sent to Safaricom.
+        </Alert>
+      ) : null}
       <Stack direction="row" spacing={1} sx={{ mt: 0.75 }} flexWrap="wrap" useFlexGap>
         <Button size="small" variant="outlined" disabled={!actions.canRegisterPull || act.isPending}
           onClick={() => setConfirm({

@@ -65,7 +65,8 @@ export function registrationActions(p: ClientMpesaProfile, callbackConfigured: b
   return {
     canRegisterC2b: callbackConfigured && mapped && (c2b === 'NOT_REGISTERED' || c2b === 'FAILED' || c2b === 'CONFIRMED'),
     // Pull registration is one-time and needs the protected nominated number.
-    canRegisterPull: callbackConfigured && mapped && Boolean(p.pullNominatedNumber?.captured) && (pull === 'NOT_REGISTERED' || pull === 'FAILED'),
+    canRegisterPull: callbackConfigured && mapped && p.pullRegistrationEligible === true && Boolean(p.pullNominatedNumber?.captured) && (pull === 'NOT_REGISTERED' || pull === 'FAILED'),
+    pullEligible: p.pullRegistrationEligible === true,
     canSetPullNumber: pull === 'NOT_REGISTERED' || pull === 'FAILED',
     c2bNeedsReconcile: c2b === 'UNCERTAIN' || c2b === 'PENDING',
     pullNeedsReconcile: pull === 'UNCERTAIN' || pull === 'PENDING',

@@ -117,6 +117,8 @@ export interface ClientMpesaProfile {
   pullRegistration?: MpesaRegistrationEvidence | null;
   pullNominatedNumber?: { captured: boolean; masked: string | null };
   lastPullRegisteredAt: string | null;
+  /** Server fail-closed flag: false until provider evidence exists for this merchant type. */
+  pullRegistrationEligible?: boolean;
   createdAt?: string;
   updatedAt?: string;
   /** Present on the single-profile GET and on mutation results; absent on list summaries. */
