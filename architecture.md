@@ -445,3 +445,19 @@ Unknown, null and unverified financial values render as "Not available"; verifie
 ## Implementation status
 
 The frontend now implements the M-PESA public `/pay` page, operator link panel and review queue, the bank connection lifecycle, estate-scoped server-side filtering and the Platform V2 screens. The authoritative per-item status (IMPLEMENTED / BLOCKED BY BACKEND / NOT IMPLEMENTED), files and blockers are in section 19 of `docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md`. Nothing was exercised against a live backend.
+
+## 16. Co-op Connect 2.0.0 frontend integration boundary — 2026-11-20
+
+The browser is a credential-entry and Tycoon API client only. It does not perform OAuth or call Co-op Connect directly.
+
+- The customer form collects Co-op Consumer Key (CK) and Consumer Secret (SK). Do not label these generic Client ID/Client secret because the Superadmin flow also has a Tycoon target clientId.
+- The Tycoon selected-client ID stays a separate request-scope value and is checked by backend SUPER_ADMIN authorization on every operation.
+- Send CK/SK only in authenticated POST JSON. Keep them in dialog-local state, never in React Query, query keys, browser storage, URLs, logs or telemetry. Clear on close/cancel/success.
+- The default grant and resource-specific scope are server configuration. Co-op documents password grant too, but the frontend must not make username/password mandatory for every connection.
+- A connection's Active state, an account's validation state, an operation's capability and the BANKING product entitlement are separate states.
+- Operation actions fail closed: poll and statement are available only when the corresponding account capability is explicitly true. Missing capability is not permission.
+- User-entered account label is not a bank-verified account-holder name.
+- Keep the clientId in BankingSetupPanel API calls and query keys for selected-client isolation. Invalidate the parent platformKeys.client(targetClientId) summary after mutation.
+- Provider error text is only rendered after backend sanitization; map stable codes to safe actionable messages.
+
+As of this audit, the panel and connection API are on open frontend PR #4, not main. See docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md for the source register, complete requirement IDs and acceptance tests.

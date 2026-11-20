@@ -555,3 +555,22 @@ Status values: IMPLEMENTED, BLOCKED BY BACKEND, NOT IMPLEMENTED. Verified with `
 | Password reset, notifications, settings endpoints, automatic entitlement expiry | BLOCKED BY BACKEND | Not built. |
 | Visual redesign pass beyond the screens above | NOT IMPLEMENTED | No dedicated styling pass was done. |
 | Automated tests beyond formatting helpers | NOT IMPLEMENTED | Only `financial-values.test.ts` exists. No component or end-to-end tests. |
+
+## 20. Co-op Connect 2.0.0 frontend correction register — 2026-11-20
+
+**Implementation state correction:** the bank connection panel and connection API are introduced by open frontend PR #4. They are not in main at the audited main SHA. Any older “IMPLEMENTED” reconciliation row must be read as a claim about the unmerged PR branch, not proof that main or production contains the feature.
+
+| Surface | Current PR #4 behavior | Required contract |
+|---|---|---|
+| Credential form | Generic Client ID and Client secret plus mandatory Username and Password; generic Scope displayed as optional | CK and SK only for the normal flow; no mandatory user credentials; no generic Scope field |
+| API credential type | clientId/clientSecret are used for Co-op CK/SK | Rename semantic fields to consumerKey/consumerSecret; keep Tycoon target clientId separate |
+| OAuth | Form shape implies password grant is always required | Backend selects the verified grant; client_credentials is the normal key-only path; password grant only when a resource explicitly requires it |
+| Scope | UI optional but audited backend requires it | Backend-configured, resource-specific scopes; no guessed customer-entered scope |
+| Account identity | Field/card label says Account name | Internal account label; Account Validation does not return a verified account-holder name |
+| Sync/statement | Missing capability currently enables action because only explicit false disables | Require explicit true; false/unknown disables |
+| Errors | ApiError and lastAuthError are rendered as messages | Backend-sanitized typed codes; distinguish invalid account, account authorization, OAuth, scope, throttle and outage |
+| Superadmin | Explicit selected client ID passed to wrappers and included in banking query keys | Preserve this and server authorization; invalidate the parent client summary after mutation |
+
+Required IDs: FCOOP-FE-001 through FCOOP-FE-016. The full source evidence, detailed contract rationale and acceptance matrix are in docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md.
+
+No provider endpoint, OAuth token, access scope or operation capability may be invented in frontend code. Poll, balance and webhook controls remain unavailable until the backend explicitly reports them ready. Full Statement is independent from AccountTransactions polling.

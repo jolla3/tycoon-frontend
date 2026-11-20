@@ -447,3 +447,13 @@ Unknown, null and unverified financial values render as "Not available"; verifie
 ## Implementation status
 
 The frontend now implements the M-PESA public `/pay` page, operator link panel and review queue, the bank connection lifecycle, estate-scoped server-side filtering and the Platform V2 screens. The authoritative per-item status (IMPLEMENTED / BLOCKED BY BACKEND / NOT IMPLEMENTED), files and blockers are in section 19 of `docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md`. Nothing was exercised against a live backend.
+
+## 15. Co-op Connect 2.0.0 frontend contract addendum — 2026-11-20
+
+This addendum supersedes any earlier assumption that a generic OAuth form is sufficient. The normal Co-op customer connection flow collects Consumer Key (CK) and Consumer Secret (SK); it does not require customer username/password or a generic scope field. Co-op documents both client_credentials and password grants, so password grant is not categorically invalid, but it is not the default customer form. Resource scopes and grant selection remain backend-controlled.
+
+The selected Tycoon client ID used by Superadmin is a request-scope/authorization target. It is not Co-op's Consumer Key. Account Validation confirms account validity but does not return a bank-verified account-holder name. Unknown provider capabilities are disabled, not assumed available.
+
+**Current implementation status:** the reusable BankingSetupPanel and bank-connections API are in open frontend PR #4, not merged into main at audit time. Older implementation-status statements saying this lifecycle is already implemented are superseded by the source/branch state in this addendum.
+
+Detailed requirements FCOOP-FE-001 through FCOOP-FE-016, exact evidence, error semantics and acceptance matrix: [docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md](docs/provider-contracts/COOP_CONNECT_FRONTEND_2_0_0_ALIGNMENT.md).
