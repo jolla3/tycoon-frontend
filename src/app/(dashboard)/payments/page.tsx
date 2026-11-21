@@ -12,7 +12,7 @@ import { DataTable, type DataTableColumn } from '@/components/data-display/data-
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { paymentsApi, type TenderMethod } from '@/lib/api/payments';
 import {
-  buildManualPaymentInput, formatTenantBalance, nairobiToday, TENDER_METHODS,
+  buildManualPaymentInput, formatTenantBalance, nairobiToday, newManualPaymentIdempotencyKey, TENDER_METHODS,
 } from '@/features/payments/manual-payment';
 import { HouseSearchSelect } from '@/features/payments/house-search-select';
 import type { House as HouseRow } from '@/types/api';
@@ -36,6 +36,7 @@ export default function PaymentsPage() {
   const canManage = user ? permissions.canManageHouses(user.role) : false;
   const [page, setPage] = useState(1);
   const [recordOpen, setRecordOpen] = useState(false);
+  const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [estateScope, setEstateScope] = useState<string | null>(null);
   const { estates } = useVisibleEstates();
   const queryClient = useQueryClient();
@@ -103,6 +104,11 @@ export default function PaymentsPage() {
           <FreshnessBadge freshness={freshness} cachedAt={cachedAt} />
         </Box>
       )}
+      {pageNotice && (
+        <Alert severity="success" sx={{ mb: 1.5 }} onClose={() => setPageNotice(null)}>
+          {pageNotice}
+        </Alert>
+      )}
       <Card>
         <DataTable
           columns={columns}
@@ -135,8 +141,9 @@ export default function PaymentsPage() {
         <RecordPaymentDialog
           open={recordOpen}
           onClose={() => setRecordOpen(false)}
-          onSaved={() => {
+          onSaved={(notice) => {
             setRecordOpen(false);
+            setPageNotice(notice);
             queryClient.invalidateQueries({ queryKey: estateKeys.paymentsFamily() });
           }}
         />
@@ -152,7 +159,7 @@ function RecordPaymentDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (notice: string) => void;
 }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
@@ -168,6 +175,8 @@ function RecordPaymentDialog({
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [balanceAfter, setBalanceAfter] = useState<number | null>(null);
+  // Stable for one intended submission; regenerated only for a fresh form attempt.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => newManualPaymentIdempotencyKey());
 
   const contextQuery = useQuery({
     queryKey: ['payments', 'manual-context', houseId, paymentDate],
@@ -189,22 +198,30 @@ function RecordPaymentDialog({
         paymentDate,
         tenderMethod,
         reference,
+        idempotencyKey,
       }));
     },
     onSuccess: (res) => {
       setFormError(null);
-      setBalanceAfter(res.balanceAfterCents ?? res.remainingBalanceCents ?? null);
-      const afterLabel = formatTenantBalance(res.balanceAfterCents ?? res.remainingBalanceCents ?? null);
-      setSuccess(
-        res.reused
-          ? 'Payment already recorded (idempotent \u2014 no double allocation).'
-          : `Payment recorded${afterLabel ? `. Tenant account now: ${afterLabel}` : ''}.`
-      );
-      onSaved();
+      const afterCents = res.balanceAfterCents ?? res.remainingBalanceCents ?? null;
+      setBalanceAfter(afterCents);
+      const afterLabel = formatTenantBalance(afterCents);
+      const notice = res.reused
+        ? (afterLabel
+          ? `Payment already recorded (idempotent). Tenant account: ${afterLabel}.`
+          : 'Payment already recorded (idempotent \u2014 no double allocation).')
+        : (afterLabel
+          ? `Payment recorded. Tenant account now: ${afterLabel}.`
+          : 'Payment recorded.');
+      setSuccess(notice);
+      // New key for any subsequent distinct submission from a reopened form.
+      setIdempotencyKey(newManualPaymentIdempotencyKey());
+      onSaved(notice);
     },
     onError: (err) => {
       setSuccess(null);
       setBalanceAfter(null);
+      // Keep the same idempotencyKey so a retry of this submission is safe.
       setFormError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Unable to record payment');
     },
   });
@@ -236,6 +253,7 @@ function RecordPaymentDialog({
               setFormError(null);
               setSuccess(null);
               setBalanceAfter(null);
+              setIdempotencyKey(newManualPaymentIdempotencyKey());
             }}
           />
 
@@ -304,7 +322,7 @@ function RecordPaymentDialog({
             label="Reference (optional)"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            helperText="A reference can only be used once per client; repeating the same details returns the original payment"
+            helperText="Optional external reference. Unique per client. Retries of this submission reuse the same internal identity."
           />
 
           {balanceAfter != null && (
@@ -325,8 +343,7 @@ function RecordPaymentDialog({
           disabled={!canSubmit}
           onClick={() => {
             setFormError(null);
-            setSuccess(null);
-            setBalanceAfter(null);
+            // Do not regenerate idempotencyKey here — retries of the same attempt must reuse it.
             mutation.mutate();
           }}
         >
