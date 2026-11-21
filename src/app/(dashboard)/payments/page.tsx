@@ -1,20 +1,19 @@
 'use client';
 
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Pagination, Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  Stack, TextField, Select, MenuItem, Alert, Chip, useMediaQuery, useTheme,
+  Stack, TextField, Select, MenuItem, Alert, useMediaQuery, useTheme,
 } from '@mui/material';
 import { Receipt, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
-import { paymentsApi } from '@/lib/api/payments';
+import { paymentsApi, type TenderMethod } from '@/lib/api/payments';
 import {
-  activeSelection, buildManualPaymentInput, describeTenancy, dialogReducer, ELIGIBLE_PAGE_SIZE, initialDialogState, resolveChoice, tenancyToSubmit,
+  buildManualPaymentInput, formatTenantBalance, nairobiToday, TENDER_METHODS,
 } from '@/features/payments/manual-payment';
-import { TenancyChooser } from '@/features/payments/tenancy-chooser';
 import { HouseSearchSelect } from '@/features/payments/house-search-select';
 import type { House as HouseRow } from '@/types/api';
 import { formatCents } from '@/lib/formatting/currency';
@@ -163,47 +162,62 @@ function RecordPaymentDialog({
   const houseId = house?._id ?? '';
   const [amountKes, setAmountKes] = useState('');
   const [reference, setReference] = useState('');
-  const [period, setPeriod] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).slice(0, 7));
-  const periodValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
-  const [dlg, dispatch] = useReducer(dialogReducer, period, (p) => initialDialogState(p));
-  const [searchInput, setSearchInput] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => dispatch({ type: 'search', search: searchInput.trim() }), 250);
-    return () => clearTimeout(t);
-  }, [searchInput]);
-  const optionsQuery = useQuery({
-    queryKey: ['payments', 'manual-options', houseId, period, dlg.page, dlg.search],
-    queryFn: () => paymentsApi.manualOptions({ houseId, period, eligiblePage: dlg.page, eligibleLimit: ELIGIBLE_PAGE_SIZE, eligibleSearch: dlg.search || undefined, limit: 10 }),
-    placeholderData: (prev) => prev,
-    enabled: open && Boolean(houseId) && periodValid,
-    staleTime: 0,
-  });
-  const choice = resolveChoice(optionsQuery.data, { houseId, period });
-  const searchPending = searchInput.trim() !== dlg.search;
-  const fresh = !optionsQuery.isFetching && !optionsQuery.isPlaceholderData && !searchPending && !optionsQuery.isError;
-  const selectedOption = activeSelection(dlg);
-  const tenancyId = tenancyToSubmit(choice, selectedOption, fresh);
+  const [paymentDate, setPaymentDate] = useState(() => nairobiToday());
+  const [tenderMethod, setTenderMethod] = useState<TenderMethod | ''>('MPESA');
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [balanceAfter, setBalanceAfter] = useState<number | null>(null);
+
+  const contextQuery = useQuery({
+    queryKey: ['payments', 'manual-context', houseId, paymentDate],
+    queryFn: () => paymentsApi.manualContext({ houseId, paymentDate }),
+    enabled: open && Boolean(houseId) && Boolean(paymentDate),
+    staleTime: 0,
+  });
+
+  const ctx = contextQuery.data;
+  const occupancyOk = ctx?.occupancy?.ok === true;
+  const tenantName = ctx?.tenant?.name ?? null;
+  const balanceLabel = formatTenantBalance(ctx?.tenantBalanceCents ?? null);
 
   const mutation = useMutation({
     mutationFn: () => {
-      return paymentsApi.create(buildManualPaymentInput({ houseId, period, amountKes, reference, tenancyId }));
+      return paymentsApi.create(buildManualPaymentInput({
+        houseId,
+        amountKes,
+        paymentDate,
+        tenderMethod,
+        reference,
+      }));
     },
     onSuccess: (res) => {
       setFormError(null);
+      setBalanceAfter(res.balanceAfterCents ?? res.remainingBalanceCents ?? null);
+      const afterLabel = formatTenantBalance(res.balanceAfterCents ?? res.remainingBalanceCents ?? null);
       setSuccess(
         res.reused
           ? 'Payment already recorded (idempotent — no double allocation).'
-          : `Payment recorded and allocated across ${res.allocations?.length ?? 0} charge(s).`
+          : `Payment recorded${afterLabel ? `. Tenant balance now: ${afterLabel}` : ''}.`
       );
       onSaved();
     },
     onError: (err) => {
       setSuccess(null);
+      setBalanceAfter(null);
       setFormError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : 'Unable to record payment');
     },
   });
+
+  const canSubmit = Boolean(
+    canReach
+    && houseId
+    && amountKes
+    && paymentDate
+    && tenderMethod
+    && occupancyOk
+    && !mutation.isPending
+    && !contextQuery.isFetching
+  );
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={fullScreen}>
@@ -213,48 +227,73 @@ function RecordPaymentDialog({
           {!canReach && <Alert severity="warning">Recording a payment requires connectivity.</Alert>}
           {formError && <Alert severity="error">{formError}</Alert>}
           {success && <Alert severity="success">{success}</Alert>}
-          <HouseSearchSelect value={house} onChange={(h) => { setHouse(h); dispatch({ type: 'house', houseId: h?._id ?? '' }); setSearchInput(''); }} />
-          <TextField
-            label="Rent month"
-            type="month"
-            value={period}
-            onChange={(e) => { setPeriod(e.target.value); dispatch({ type: 'period', period: e.target.value }); setSearchInput(''); }}
-            InputLabelProps={{ shrink: true }}
-            error={!periodValid}
-            helperText="The month this payment is for. It decides which tenancy is charged."
+
+          <HouseSearchSelect
+            value={house}
+            onChange={(h) => {
+              setHouse(h);
+              setFormError(null);
+              setSuccess(null);
+              setBalanceAfter(null);
+            }}
           />
-          {houseId && periodValid ? (
-            optionsQuery.isError ? (
-              <Alert severity="error">Could not load tenancy details. Nothing was changed.</Alert>
-            ) : choice.kind === 'loading' ? (
-              <Typography variant="body2" color="text.secondary">Checking who occupied this house in {period}…</Typography>
-            ) : choice.kind === 'unique' ? (
-              <Alert severity="info">Recorded against: {describeTenancy(choice.option, (d) => dateFormat(d, 'DD MMM YYYY'))}</Alert>
-            ) : choice.kind === 'choose' ? (
-              <TenancyChooser
-                eligibleTotal={choice.eligibleTotal}
-                selection={choice.selection}
-                selected={selectedOption}
-                search={searchInput}
-                loading={!fresh}
-                period={period}
-                fmt={(d) => dateFormat(d, 'DD MMM YYYY')}
-                onSearch={setSearchInput}
-                onPage={(n) => dispatch({ type: 'page', page: n })}
-                onSelect={(o) => dispatch({ type: 'select', option: o })}
-                onClear={() => dispatch({ type: 'clear' })}
-              />
-            ) : (
-              <Alert severity="warning" data-testid="no-eligible-tenancy">
-                No single tenancy fully covers {period} for this house, so the payment cannot be attributed to a tenant. Partial-month billing is not supported yet.
-                <Typography variant="caption" component="div" sx={{ mt: 1 }}>Tenancy history (for information only, not selectable):</Typography>
-                {choice.history.map((o) => (
-                  <div key={o.tenancyId}>{describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}{o.reason ? ` — ${o.reason}` : ''}</div>
-                ))}
+
+          {houseId && (
+            contextQuery.isError ? (
+              <Alert severity="error">Could not load occupancy for this house. Nothing was changed.</Alert>
+            ) : contextQuery.isFetching && !ctx ? (
+              <Typography variant="body2" color="text.secondary">Checking occupancy…</Typography>
+            ) : ctx && !occupancyOk ? (
+              <Alert severity="warning">{ctx.occupancy?.reason || 'This house cannot receive a payment right now.'}</Alert>
+            ) : occupancyOk ? (
+              <Alert severity="info">
+                Tenant: <strong>{tenantName || 'Resolved tenant'}</strong>
+                {balanceLabel != null && (
+                  <Typography variant="body2" component="div" sx={{ mt: 0.5 }}>
+                    Account balance: {balanceLabel}
+                  </Typography>
+                )}
+                {balanceLabel == null && (
+                  <Typography variant="body2" component="div" sx={{ mt: 0.5 }} color="text.secondary">
+                    Account balance unavailable
+                  </Typography>
+                )}
               </Alert>
-            )
-          ) : null}
-          <TextField label="Amount (KES)" type="number" value={amountKes} onChange={(e) => setAmountKes(e.target.value)} required />
+            ) : null
+          )}
+
+          <TextField
+            label="Amount (KES)"
+            type="number"
+            value={amountKes}
+            onChange={(e) => setAmountKes(e.target.value)}
+            required
+          />
+
+          <TextField
+            label="Payment date"
+            type="date"
+            value={paymentDate}
+            onChange={(e) => {
+              setPaymentDate(e.target.value);
+              setBalanceAfter(null);
+            }}
+            InputLabelProps={{ shrink: true }}
+            helperText="Defaults to today (Africa/Nairobi). Backdated payments attribute to whoever occupied the house on that date."
+          />
+
+          <TextField
+            label="Payment method"
+            select
+            value={tenderMethod}
+            onChange={(e) => setTenderMethod(e.target.value as TenderMethod)}
+            required
+          >
+            {TENDER_METHODS.map((m) => (
+              <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
+            ))}
+          </TextField>
+
           <TextField
             label="Reference (optional)"
             value={reference}
@@ -262,8 +301,14 @@ function RecordPaymentDialog({
             helperText="A reference can only be used once per client; repeating the same details returns the original payment"
           />
 
+          {balanceAfter != null && (
+            <Typography variant="caption" color="text.secondary">
+              Updated balance: {formatTenantBalance(balanceAfter) ?? '—'}
+            </Typography>
+          )}
+
           <Typography variant="caption" color="text.secondary">
-            The server charges the selected tenancy and allocates oldest outstanding charge first.
+            The server attributes this receipt to the tenant who occupied the house on the payment date and allocates oldest outstanding charge first. Excess becomes tenant credit.
           </Typography>
         </Stack>
       </DialogContent>
@@ -271,10 +316,11 @@ function RecordPaymentDialog({
         <Button onClick={onClose}>Close</Button>
         <Button
           variant="contained"
-          disabled={!canReach || mutation.isPending || !houseId || !amountKes || !tenancyId}
+          disabled={!canSubmit}
           onClick={() => {
             setFormError(null);
             setSuccess(null);
+            setBalanceAfter(null);
             mutation.mutate();
           }}
         >
