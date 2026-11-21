@@ -15,12 +15,21 @@ export function nairobiToday(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' });
 }
 
+/** One stable submission identity for a single intended record attempt. */
+export function newManualPaymentIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export function buildManualPaymentInput(args: {
   houseId: string;
   amountKes: string;
   paymentDate: string;
   tenderMethod: TenderMethod | '';
   reference: string;
+  idempotencyKey: string;
 }): ManualPaymentInput {
   const amountCents = Math.round(Number(args.amountKes) * 100);
   if (!args.houseId) throw new Error('Select a house');
@@ -29,11 +38,14 @@ export function buildManualPaymentInput(args: {
   }
   if (!args.tenderMethod) throw new Error('Choose a payment method');
   if (!Number.isFinite(amountCents) || amountCents <= 0) throw new Error('Enter a positive amount');
+  const key = String(args.idempotencyKey || '').trim();
+  if (key.length < 8) throw new Error('Missing submission identity');
   return {
     houseId: args.houseId,
     amountCents,
     paymentDate: args.paymentDate,
     tenderMethod: args.tenderMethod,
+    idempotencyKey: key,
     paymentReference: args.reference.trim() || undefined,
   };
 }

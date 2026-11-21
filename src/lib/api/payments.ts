@@ -8,6 +8,8 @@ export interface ManualPaymentInput {
   amountCents: number;
   paymentDate: string;
   tenderMethod: TenderMethod;
+  /** Client-generated once per intended submission; retries must reuse the same key. */
+  idempotencyKey: string;
   paymentReference?: string;
   /** Edge-case / legacy — ordinary UI does not send these. */
   period?: string;
@@ -66,15 +68,39 @@ export interface ManualPaymentContext {
   tenant: { _id: string; name: string; phone?: string; status?: string } | null;
   /** Tenant ledger balance in cents; null when unavailable (never treat as 0). */
   tenantBalanceCents: number | null;
+  creditCents?: number | null;
+  outstandingCents?: number | null;
+}
+
+export interface ManualReceiptSummary {
+  _id: string;
+  houseId: string;
+  tenantId: string;
+  occupancyTenancyId: string;
+  paymentDateLocal: string;
+  period: string;
+  tenderMethod: TenderMethod;
+  amountCents: number;
+  paymentReference: string | null;
+  idempotencyKey: string;
+  creditAppliedCents: number;
+  receiptAppliedCents: number;
+  newCreditCents: number;
 }
 
 export interface ManualPaymentResult {
-  payment: Payment;
+  receipt?: ManualReceiptSummary | null;
+  payment: Payment | null;
+  payments?: Payment[];
   allocations: Array<{
     rentChargeId: string;
     amountCents: number;
     chargeType: string;
     period: string;
+    tenancyId?: string;
+    houseId?: string;
+    paymentId?: string;
+    origin?: string;
   }>;
   reused?: boolean;
   tenancyId?: string | null;
@@ -83,6 +109,15 @@ export interface ManualPaymentResult {
   remainingBalanceCents?: number | null;
   balanceBeforeCents?: number | null;
   balanceAfterCents?: number | null;
+  creditBeforeCents?: number | null;
+  creditAfterCents?: number | null;
+  outstandingBeforeCents?: number | null;
+  outstandingAfterCents?: number | null;
+  plan?: {
+    creditAppliedCents: number;
+    receiptAppliedCents: number;
+    newCreditCents: number;
+  } | null;
   tenant?: { _id: string; name: string; phone?: string } | null;
 }
 
