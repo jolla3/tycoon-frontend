@@ -595,3 +595,31 @@ The frontend consumes the existing Tycoon banking API. It does not call Co-op OA
 - Preserve ephemeral credential state on request error only when retry is useful; provide explicit discard, clear on close/cancel/success, and never persist secrets in query caches or browser storage.
 - Superadmin keeps explicit `clientId` query scoping and server authorization. After mutations, invalidate banking keys and `platformKeys.client(clientId)`.
 - Account name is an internal Tycoon label, not a Co-op verified account-holder name.
+
+
+---
+
+## Current merged-source reconciliation — 21 November 2026
+
+**Frontend `main`:** `a27f20dd3244cdc7370cffa16b70c6cd32a45576`  
+**Backend `main`:** `0dbf7ef75ed6c1a39e24775aec9a86e08f7d0617`
+
+### Cross-layer request and identity contracts
+
+1. Authenticated API calls continue through the shared client with `credentials: 'include'` and CSRF. `Idempotency-Key` is an allowed domain header; backend CORS must allow it. Do not weaken session or CSRF controls.
+2. Co-op onboarding must send `credentialMaterial: { consumerKey, consumerSecret }` only. The current frontend form still sends legacy fields, while backend validation and provider auth are also inconsistent. Fix all layers to the G4 contract; keep UI capability disabled when backend provider/resource readiness is false.
+3. Deposit operations must resolve to an exact `tenancyId`, not an arbitrary active Tenancy discovered from `tenantId`. Validate Tenant, Tenancy, Client and Estate together. The existing tenant-level API may be used only for a unique match until the exact-tenancy API is integrated.
+4. Deposit settlement is not a refund or move-out. Do not present those effects unless the API response and backend transaction actually perform them under the approved G3 policy. A requirement update that returns an unchanged paid Deposit is a conflict, not success.
+5. Manual-payment candidate search/pagination must run in the AMBIGUOUS state. Keep resolver eligibility and option browsing on the same server predicate; do not treat the first 20 visible rows as the full set.
+
+### Workspace and reporting contracts
+
+- HouseType workspace needs the existing versioned-plan edit workflow; show effective period, reason and affected Houses that use `HOUSE_TYPE` billing. Historical charges remain snapshots.
+- Partial-month billing remains unsupported pending an owner-approved G3 formula.
+- Transactions is a receipt/transaction history surface. Reports is an aggregate surface; distinguish observed/verified/unallocated M-PESA receipts from G3 Payments and never double count a receipt plus its posted Payment.
+- Hide Banking-only report metrics and tabs when BANKING is not entitled.
+- Platform M-PESA filter layout needs real browser checks at narrow widths before claiming a responsive defect or fix.
+
+### Verification guardrails
+
+Use the frontend endpoint/screen matrix and backend G3/G4 requirements as a paired contract, but keep each repository's documents in that repository. Do not infer missing API routes or fields from UI needs. Add the backend contract first, then consume the committed request/response shape. Test network OPTIONS and mutation behavior, multi-tenancy, pagination beyond 20, entitlement visibility and real viewport sizes. Do not claim provider sandbox or live readiness from mocks or compilation.

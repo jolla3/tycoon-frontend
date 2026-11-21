@@ -676,3 +676,27 @@ The baseline does not prove dedicated component/API tests, browser behaviour, pr
 - `ClientMpesaProfile.pullRegistrationEligible` (server fail-closed flag). While false the Superadmin panel shows why and never enables **Register Pull**; the nominated number can still be saved.
 - Manual-payment dialog: house selection is a debounced server-side search (`GET /houses?search&limit=20`), with no status filter (historic tenancies on vacant houses are selectable). Tenancy options still come from `GET /payments/manual-options` (`eligibleOptions`, `eligibleTotal`, paged `options`).
 - Browser evidence: Superadmin client Integrations tab was rendered in Chromium (dev server, faked API responses) at 360/390/768/1024/1280/1440 with no horizontal overflow. Tenants workspace, payments dialog and the reference panel were NOT visually checked.
+
+
+---
+
+## Current merged-source correction — 21 November 2026
+
+**Frontend main:** `a27f20dd3244cdc7370cffa16b70c6cd32a45576`  
+**Backend main:** `0dbf7ef75ed6c1a39e24775aec9a86e08f7d0617`
+
+This section supersedes older source SHAs and statuses above where they conflict with the merged current source. Historical rows remain for audit only.
+
+| Area | Current verified source gap | Required contract / implementation | Proof required |
+|---|---|---|---|
+| Co-op onboarding | FE submits legacy `clientId/clientSecret/username/password/scope`; BE strict validator accepts `consumerKey/consumerSecret`; provider factory/auth still use legacy password-grant fields | CK/SK-only frontend DTO and backend auth mapping per G4 documents; trusted provider grant/scope configuration; keep unverified resource capability disabled | FE body tests, BE schema/factory/token tests, rotation/race tests; separate sandbox gate |
+| Deposit identity | Routes/wrappers are Tenant-ID based; backend selects arbitrary active Tenancy and omits the Tenancy Estate predicate | Exact Tenancy selection; validate client/Estate/Tenant ownership. Legacy Tenant route only for one match, otherwise typed ambiguity conflict | One Tenant with multiple active Tenancies; cross-Estate access denial; replica-set tests |
+| Deposit settlement | UI copy claims refund and move-out; backend `settle()` only records settlement state | Remove unsupported promise. Refund movement/Ledger and exact Tenancy closure require approved G3 policy and backend transaction | Verify held/refunded/deducted totals, Ledger reconciliation, atomic close/refund after policy approval |
+| Deposit requirement | Requirement update after payment can return unchanged value as apparent success | Explicit conflict or separately specified adjustment; UI must show conflict | Before-payment and after-payment update tests; audit correctness |
+| Deposit idempotency/CORS | Frontend sends `Idempotency-Key`; CORS allow-list omits it | Allow header while retaining origin, credentials and CSRF checks | Browser OPTIONS plus authenticated POST and negative Origin/CSRF cases |
+| Manual payment | AMBIGUOUS UI uses capped first 20 `eligibleOptions` although eligible total is larger | Use paginated/search candidate response in AMBIGUOUS as well as NONE; preserve exact selected `tenancyId` | More than 20 and more than 50 candidates; no missing/duplicate candidates across pages |
+| HouseType | List edit exists; workspace edit does not; list copy says defaults affect only new Houses | Add workspace versioned-plan editor; show effective period/reason and affected Houses using `HOUSE_TYPE` billing | Existing and new House version-selection tests; historical charges remain unchanged |
+| Reports | Transactions has M-PESA history, but Reports lacks M-PESA aggregate; Banking tab/KPI ignores BANKING entitlement | Separate receipt evidence states from posted G3 Payments; entitlement-gate optional Banking surfaces | No double-counting; cross-Estate receipt privacy; entitlement on/off UI/API tests |
+| Responsive platform filters | Narrow-width overflow is plausible from fixed minimum widths; no confirmed current screenshot evidence | Inspect and adjust only after real viewport reproduction | Browser screenshots at 360, 390, 768, 1024, 1280 and 1440 widths |
+
+**Preserve existing behavior:** full-month-only billing until proration policy is approved; Tenant credit auto-apply within the same Estate; M-PESA multi-estate profile mapping; Transactions as receipt history. Do not duplicate those capabilities or imply they are missing.
