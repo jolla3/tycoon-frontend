@@ -1,18 +1,23 @@
 import { apiClient, type QueryValue } from './client';
 import type { Paginated, Payment } from '@/types/api';
 
+export type TenderMethod = 'CASH' | 'MPESA' | 'BANK_TRANSFER' | 'CHEQUE' | 'OTHER';
+
 export interface ManualPaymentInput {
   houseId: string;
   amountCents: number;
-  paymentDate?: string;
+  paymentDate: string;
+  tenderMethod: TenderMethod;
+  /** Client-generated once per intended submission; retries must reuse the same key. */
+  idempotencyKey: string;
   paymentReference?: string;
+  /** Edge-case / legacy — ordinary UI does not send these. */
   period?: string;
   tenantId?: string;
-  /** Validated server-side against client/estate/house/tenant/period. */
   tenancyId?: string;
 }
 
-/** One selectable tenancy. `tenancyId` is a value only; show tenantName and dates. */
+/** One selectable tenancy. Kept for legacy manual-options consumers. */
 export interface TenancyOption {
   tenancyId: string;
   tenantName: string;
@@ -32,20 +37,14 @@ export interface EligibleSelection {
   search: string;
 }
 
-/** GET /payments/manual-options */
+/** GET /payments/manual-options (legacy / edge-case). */
 export interface ManualPaymentOptions {
   houseId: string;
   period: string;
   resolution: 'UNIQUE' | 'AMBIGUOUS' | 'NONE';
   defaultTenancyId: string | null;
-  /** Exact number of tenancies that fully cover the period; independent of page and search. */
   eligibleTotal?: number;
-  /**
-   * The ONLY selectable list: eligible tenancies, newest first, paginated and searched by tenant
-   * name in the database. `total` is the exact count for the current search.
-   */
   eligibleSelection?: EligibleSelection;
-  /** INFORMATIONAL history (all statuses/eligibility). Explains NONE; never selectable. */
   options: TenancyOption[];
   page?: number;
   limit?: number;
@@ -53,18 +52,73 @@ export interface ManualPaymentOptions {
   hasMore?: boolean;
 }
 
+/** GET /payments/manual-context — occupancy + tenant balance for the record form. */
+export interface ManualPaymentContext {
+  houseId: string;
+  houseNumber: string;
+  houseStatus: string;
+  isActive: boolean;
+  paymentDate: string;
+  occupancy: {
+    ok: boolean;
+    reason: string | null;
+    tenancyId: string | null;
+    tenantId: string | null;
+  };
+  tenant: { _id: string; name: string; phone?: string; status?: string } | null;
+  /** Tenant ledger balance in cents; null when unavailable (never treat as 0). */
+  tenantBalanceCents: number | null;
+  creditCents?: number | null;
+  outstandingCents?: number | null;
+}
+
+export interface ManualReceiptSummary {
+  _id: string;
+  houseId: string;
+  tenantId: string;
+  occupancyTenancyId: string;
+  paymentDateLocal: string;
+  period: string;
+  tenderMethod: TenderMethod;
+  amountCents: number;
+  paymentReference: string | null;
+  idempotencyKey: string;
+  creditAppliedCents: number;
+  receiptAppliedCents: number;
+  newCreditCents: number;
+}
+
 export interface ManualPaymentResult {
-  payment: Payment;
+  receipt?: ManualReceiptSummary | null;
+  payment: Payment | null;
+  payments?: Payment[];
   allocations: Array<{
     rentChargeId: string;
     amountCents: number;
     chargeType: string;
     period: string;
+    tenancyId?: string;
+    houseId?: string;
+    paymentId?: string;
+    origin?: string;
   }>;
   reused?: boolean;
   tenancyId?: string | null;
+  tenantId?: string | null;
   unappliedCents?: number;
   remainingBalanceCents?: number | null;
+  balanceBeforeCents?: number | null;
+  balanceAfterCents?: number | null;
+  creditBeforeCents?: number | null;
+  creditAfterCents?: number | null;
+  outstandingBeforeCents?: number | null;
+  outstandingAfterCents?: number | null;
+  plan?: {
+    creditAppliedCents: number;
+    receiptAppliedCents: number;
+    newCreditCents: number;
+  } | null;
+  tenant?: { _id: string; name: string; phone?: string } | null;
 }
 
 export const paymentsApi = {
@@ -75,5 +129,7 @@ export const paymentsApi = {
     eligiblePage?: number; eligibleLimit?: number; eligibleSearch?: string;
   }) =>
     apiClient.get<ManualPaymentOptions>('/payments/manual-options', query as Record<string, QueryValue>),
+  manualContext: (query: { houseId: string; paymentDate?: string }) =>
+    apiClient.get<ManualPaymentContext>('/payments/manual-context', query as Record<string, QueryValue>),
   create: (input: ManualPaymentInput) => apiClient.post<ManualPaymentResult>('/payments', input),
 };
