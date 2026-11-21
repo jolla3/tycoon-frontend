@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Alert } from '@mui/material';
+import { subscriptionApi } from '@/lib/api/subscription';
+import { bankingGate } from '@/features/reports/banking-gate';
 import {
   Card,
   CardContent,
@@ -51,6 +55,14 @@ export default function ReportsPage() {
   const identity = user ? identityKeyFromUser(user) : 'anon';
   const [estateScope, setEstateScope] = useState<string | null>(null);
   const [tab, setTab] = useState(0);
+  // Keyed by identity (client + user) so a client switch never reuses another client's entitlement.
+  const subscription = useQuery({
+    queryKey: ['subscription', identity],
+    queryFn: () => subscriptionApi.get(),
+    retry: false,
+  });
+  const gate = bankingGate(subscription);
+  const banking = gate === 'enabled';
 
   useEffect(() => {
     setEstateScope(readListScopeEstate());
@@ -134,14 +146,14 @@ export default function ReportsPage() {
             <Kpi label="Open charges (period)" value={formatMaybeCents(outstanding)} />
             <Kpi label="Collection rate" value={collectionRate != null ? `${collectionRate}%` : 'Not available'} />
             <Kpi label="Charges from earlier periods (open)" value={formatMaybeCents(prevArrears)} />
-            <Kpi label="Unmatched bank (all time)" value={formatMaybeNumber(data.bank?.unmatchedAllTime)} />
+            {banking ? <Kpi label="Unmatched bank (all time)" value={formatMaybeNumber(data.bank?.unmatchedAllTime)} /> : null}
           </Grid>
 
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable">
             <Tab label="Revenue" />
             <Tab label="Arrears" />
             <Tab label="Occupancy" />
-            <Tab label="Banking / SMS" />
+            <Tab label={banking ? 'Banking / SMS' : 'SMS'} />
           </Tabs>
 
           {tab === 0 && (
@@ -370,6 +382,7 @@ export default function ReportsPage() {
 
           {tab === 3 && (
             <Grid container spacing={2}>
+              {banking ? (
               <Grid item xs={12} md={6}>
                 <Card sx={{ p: 2 }}>
                   <Typography variant="subtitle1" sx={{ mb: 1 }}>
@@ -384,6 +397,13 @@ export default function ReportsPage() {
                   </Stack>
                 </Card>
               </Grid>
+              ) : gate === 'unknown' ? (
+              <Grid item xs={12} md={6}>
+                <Alert severity="info">
+                  {subscription.isLoading ? 'Checking banking access…' : 'Banking figures are hidden because banking access could not be confirmed.'}
+                </Alert>
+              </Grid>
+              ) : null}
               <Grid item xs={12} md={6}>
                 <Card sx={{ p: 2 }}>
                   <Typography variant="subtitle1" sx={{ mb: 1 }}>
