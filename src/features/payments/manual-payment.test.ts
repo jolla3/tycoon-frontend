@@ -148,14 +148,29 @@ describe('stale results cannot be submitted', () => {
 });
 
 describe('buildManualPaymentInput', () => {
-  const ok = { houseId: 'h', period: '2026-06', amountKes: '1500.50', reference: ' ref ', tenancyId: 'A' };
-  it('builds cents, trims the reference and sends period + tenancyId', () => {
-    expect(buildManualPaymentInput(ok)).toEqual({ houseId: 'h', period: '2026-06', tenancyId: 'A', amountCents: 150050, paymentReference: 'ref' });
+  const ok = {
+    houseId: 'h',
+    amountKes: '1500.50',
+    paymentDate: '2026-06-15',
+    tenderMethod: 'CASH' as const,
+    reference: ' ref ',
+    idempotencyKey: 'sub-key-12345678',
+  };
+  it('builds cents, trims the reference and requires method + date + identity', () => {
+    expect(buildManualPaymentInput(ok)).toEqual({
+      houseId: 'h',
+      amountCents: 150050,
+      paymentDate: '2026-06-15',
+      tenderMethod: 'CASH',
+      idempotencyKey: 'sub-key-12345678',
+      paymentReference: 'ref',
+    });
   });
-  it('rejects missing house/tenancy, bad period, non-positive amount', () => {
+  it('rejects missing house/method/date/identity and non-positive amount', () => {
     expect(() => buildManualPaymentInput({ ...ok, houseId: '' })).toThrow(/house/i);
-    expect(() => buildManualPaymentInput({ ...ok, tenancyId: null })).toThrow(/tenancy/i);
-    expect(() => buildManualPaymentInput({ ...ok, period: '2026-13' })).toThrow(/month/i);
+    expect(() => buildManualPaymentInput({ ...ok, tenderMethod: '' })).toThrow(/method/i);
+    expect(() => buildManualPaymentInput({ ...ok, paymentDate: 'not-a-date' })).toThrow(/date/i);
+    expect(() => buildManualPaymentInput({ ...ok, idempotencyKey: 'short' })).toThrow(/identity/i);
     expect(() => buildManualPaymentInput({ ...ok, amountKes: '0' })).toThrow(/positive/i);
     expect(() => buildManualPaymentInput({ ...ok, amountKes: 'abc' })).toThrow(/positive/i);
   });
