@@ -80,6 +80,49 @@ export interface TenantCollectionPayment {
   allocations: Array<{ rentChargeId: string; tenancyId: string | null; amountCents: number; period: string; chargeType: string }>;
 }
 
+/** One reference row. `reference` is the raw account number to type; `display` is the grouped form. */
+export interface TenantReference {
+  id: string;
+  reference: string;
+  display: string;
+  issuedAt: string | null;
+  /** Present only on retired references. */
+  retiredAt?: string | null;
+  retiredReason?: string | null;
+}
+
+export interface TenantReferenceMerchant {
+  merchantProfileId: string;
+  displayName: string | null;
+  businessShortCode: string;
+  active: TenantReference | null;
+  /** Most recent retired references (bounded); `retiredCount` is the exact total. */
+  retired: TenantReference[];
+  retiredCount: number;
+  /** Server decision: ACTIVE tenancy and no active reference yet. */
+  canIssue: boolean;
+}
+
+export interface TenantReferenceTenancy {
+  tenancyId: string;
+  estateId: string;
+  houseId: string;
+  houseNumber: string | null;
+  status: 'ACTIVE' | 'CLOSED';
+  startAt: string | null;
+  endAt: string | null;
+  merchants: TenantReferenceMerchant[];
+}
+
+export interface TenantReferencesView {
+  tenantId: string;
+  tenancies: TenantReferenceTenancy[];
+  page: number;
+  limit: number;
+  total: number;
+  hasMore: boolean;
+}
+
 type Scope = { clientId?: string };
 const q = (scope: Scope, extra: Record<string, QueryValue> = {}) => ({ ...extra, ...(scope.clientId ? { clientId: scope.clientId } : {}) });
 
@@ -96,6 +139,12 @@ export const mpesaCollectionApi = {
     apiClient.get<TenantCollectionAccount>(`/mpesa-collection/tenants/${tenantId}/account`, q(scope)),
   payments: (tenantId: string, scope: Scope = {}) =>
     apiClient.get<{ payments: TenantCollectionPayment[] }>(`/mpesa-collection/tenants/${tenantId}/payments`, q(scope)),
+  /** Exact-tenancy PayBill references. Never cached beyond the session; no default tenancy. */
+  references: (tenantId: string, query: { page?: number; limit?: number } & Scope = {}) =>
+    apiClient.get<TenantReferencesView>(`/mpesa-collection/tenants/${tenantId}/references`, q(query, { page: query.page, limit: query.limit })),
+  issueReference: (tenantId: string, body: { tenancyId: string; merchantProfileId: string }, scope: Scope = {}) =>
+    apiClient.post<{ created: boolean; reference: TenantReference; tenancyId: string; merchantProfileId: string }>(
+      `/mpesa-collection/tenants/${tenantId}/references${scope.clientId ? `?clientId=${encodeURIComponent(scope.clientId)}` : ''}`, body),
   listSubmissions: (query: { state?: SubmissionState; limit?: number; estateId?: string } & Scope = {}) =>
     apiClient.get<{ submissions: MpesaSubmission[] }>('/mpesa-collection/submissions', q(query, { state: query.state, limit: query.limit, estateId: query.estateId })),
   resolveSubmission: (id: string, body: { action: ReviewAction; reasonCode: ReviewReasonCode }, scope: Scope = {}) =>

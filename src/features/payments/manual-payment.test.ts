@@ -54,3 +54,23 @@ describe('describeTenancy', () => {
     expect(text).not.toContain('64b7f0a1');
   });
 });
+
+describe('older tenancies beyond the first page', () => {
+  const many = Array.from({ length: 60 }, (_, i) => opt({ tenancyId: `T${i}`, coversPeriod: false, reason: 'ended', status: 'CLOSED' }));
+  it('resolves from eligibleOptions even when the covering tenancy is not on the loaded page', () => {
+    const old = opt({ tenancyId: 'OLD-COVERING' });
+    const s = resolveChoice(opts({ resolution: 'UNIQUE', defaultTenancyId: 'OLD-COVERING', options: many.slice(0, 50), eligibleOptions: [old], total: 61, hasMore: true }));
+    expect(s.kind).toBe('unique');
+    expect(tenancyToSubmit(s, '')).toBe('OLD-COVERING');
+  });
+  it('a page of 50 non-covering tenancies with an ambiguous eligible set still forces an explicit choice', () => {
+    const s = resolveChoice(opts({ resolution: 'AMBIGUOUS', options: many.slice(0, 50), eligibleOptions: [opt({ tenancyId: 'A' }), opt({ tenancyId: 'B' })] }));
+    expect(s.kind).toBe('choose');
+    expect(tenancyToSubmit(s, 'T3')).toBeNull();
+  });
+  it('NONE shows the paged list but never submits', () => {
+    const s = resolveChoice(opts({ resolution: 'NONE', options: many.slice(0, 50), eligibleOptions: [] }));
+    expect(s.kind).toBe('none');
+    expect(tenancyToSubmit(s, 'T1')).toBeNull();
+  });
+});

@@ -29,7 +29,14 @@ export interface ManualPaymentOptions {
   period: string;
   resolution: 'UNIQUE' | 'AMBIGUOUS' | 'NONE';
   defaultTenancyId: string | null;
+  /** Every tenancy that covers the period, independent of paging/search (older records included). */
+  eligibleOptions?: TenancyOption[];
+  /** One page of the house's tenancies (newest first), optionally filtered by tenant name. */
   options: TenancyOption[];
+  page?: number;
+  limit?: number;
+  total?: number;
+  hasMore?: boolean;
 }
 
 export interface ManualPaymentResult {
@@ -49,7 +56,7 @@ export interface ManualPaymentResult {
 export const paymentsApi = {
   list: (query: { page?: number; limit?: number; houseId?: string; tenantId?: string; estateId?: string } = {}) =>
     apiClient.get<Paginated<Payment>>('/payments', query as Record<string, QueryValue>),
-  manualOptions: (query: { houseId: string; period?: string }) =>
+  manualOptions: (query: { houseId: string; period?: string; page?: number; limit?: number; search?: string }) =>
     apiClient.get<ManualPaymentOptions>('/payments/manual-options', query as Record<string, QueryValue>),
   create: (input: ManualPaymentInput) => apiClient.post<ManualPaymentResult>('/payments', input),
 };

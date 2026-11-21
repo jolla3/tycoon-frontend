@@ -11,9 +11,11 @@ export type TenancyChoiceState =
 /** Decide what the dialog shows. `selectedTenancyId` only counts when it is a covering option. */
 export function resolveChoice(options: ManualPaymentOptions | undefined): TenancyChoiceState {
   if (!options) return { kind: 'loading' };
-  const covering = options.options.filter((o) => o.coversPeriod);
+  // Resolution never depends on which page/search the browsable list is showing.
+  const covering = options.eligibleOptions ?? options.options.filter((o) => o.coversPeriod);
   if (options.resolution === 'UNIQUE' && options.defaultTenancyId) {
-    const option = options.options.find((o) => o.tenancyId === options.defaultTenancyId);
+    const option = covering.find((o) => o.tenancyId === options.defaultTenancyId)
+      ?? options.options.find((o) => o.tenancyId === options.defaultTenancyId);
     if (option) return { kind: 'unique', option };
   }
   if (covering.length > 1) return { kind: 'choose', options: covering };

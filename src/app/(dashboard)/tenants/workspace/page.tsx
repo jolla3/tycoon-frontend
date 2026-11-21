@@ -14,6 +14,7 @@ import { formatCents, formatMaybeCents } from '@/lib/formatting/currency';
 import { ApiError } from '@/lib/api/client';
 import { openWorkspace, readWorkspaceId } from '@/lib/navigation/workspace';
 import { TenantMpesaLinkPanel } from '@/features/mpesa/tenant-link-panel';
+import { TenantReferencePanel } from '@/features/mpesa/tenant-reference-panel';
 import { TenantDepositPanel } from '@/features/deposits/deposit-panel';
 import { KnownArrearsCard, MetricCard } from '@/features/finance/metric-card';
 import { PaymentStatusChip } from '@/components/data-display/status-chip';
@@ -184,7 +185,12 @@ export default function TenantWorkspacePage() {
         </Card>
       )}
       {tab === 6 && <TenantDepositPanel tenantId={tenantId} />}
-      {tab === 7 && <TenantMpesaLinkPanel tenantId={tenantId} />}
+      {tab === 7 && (
+        <Stack spacing={2}>
+          <TenantReferencePanel tenantId={tenantId} />
+          <TenantMpesaLinkPanel tenantId={tenantId} />
+        </Stack>
+      )}
     </>
   );
 }

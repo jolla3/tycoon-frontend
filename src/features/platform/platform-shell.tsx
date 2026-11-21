@@ -105,11 +105,11 @@ export function PlatformShell({ children }: { children: ReactNode }) {
           {nav}
         </Drawer>
       ) : (
-        <Drawer variant="temporary" open={open} onClose={() => setOpen(false)} ModalProps={{ keepMounted: true }} sx={{ [`& .MuiDrawer-paper`]: { width: WIDTH } }}>
+        <Drawer variant="temporary" open={open} onClose={() => setOpen(false)} ModalProps={{ keepMounted: true }} sx={{ [`& .MuiDrawer-paper`]: { width: `min(${WIDTH}px, calc(100vw - 24px))`, boxSizing: 'border-box' } }}>
           {nav}
         </Drawer>
       )}
-      <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, md: 3 }, mt: 8 }}>
+      <Box component="main" sx={{ flex: '1 1 0', minWidth: 0, maxWidth: '100%', p: { xs: 1.5, sm: 2, md: 3 }, mt: 8 }}>
         {children}
       </Box>
     </Box>

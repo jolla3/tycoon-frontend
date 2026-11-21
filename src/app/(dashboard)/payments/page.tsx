@@ -12,7 +12,8 @@ import { DataTable, type DataTableColumn } from '@/components/data-display/data-
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { paymentsApi } from '@/lib/api/payments';
 import { buildManualPaymentInput, describeTenancy, resolveChoice, tenancyToSubmit } from '@/features/payments/manual-payment';
-import { housesApi } from '@/lib/api/houses';
+import { HouseSearchSelect } from '@/features/payments/house-search-select';
+import type { House as HouseRow } from '@/types/api';
 import { formatCents } from '@/lib/formatting/currency';
 import { PaymentStatusChip, PaymentOriginChip } from '@/components/data-display/status-chip';
 import { useVisibleEstates } from '@/features/estates/use-visible-estates';
@@ -153,19 +154,19 @@ function RecordPaymentDialog({
 }) {
   const connectivity = useConnectivity();
   const canReach = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
-  const { data: housesPage } = useQuery({
-    queryKey: estateKeys.houses(undefined, { purpose: 'payment-picker', status: 'occupied' }),
-    queryFn: () => housesApi.list({ status: 'occupied', limit: 100 }),
-  });
-  const [houseId, setHouseId] = useState('');
+  const [house, setHouse] = useState<HouseRow | null>(null);
+  const houseId = house?._id ?? '';
   const [amountKes, setAmountKes] = useState('');
   const [reference, setReference] = useState('');
   const [period, setPeriod] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).slice(0, 7));
   const [selectedTenancyId, setSelectedTenancyId] = useState('');
+  const [optPage, setOptPage] = useState(1);
+  const [optSearch, setOptSearch] = useState('');
   const periodValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
   const optionsQuery = useQuery({
-    queryKey: ['payments', 'manual-options', houseId, period],
-    queryFn: () => paymentsApi.manualOptions({ houseId, period }),
+    queryKey: ['payments', 'manual-options', houseId, period, optPage, optSearch],
+    queryFn: () => paymentsApi.manualOptions({ houseId, period, page: optPage, limit: 10, search: optSearch.trim() || undefined }),
+    placeholderData: (prev) => prev,
     enabled: open && Boolean(houseId) && periodValid,
     staleTime: 0,
   });
@@ -201,20 +202,12 @@ function RecordPaymentDialog({
           {!canReach && <Alert severity="warning">Recording a payment requires connectivity.</Alert>}
           {formError && <Alert severity="error">{formError}</Alert>}
           {success && <Alert severity="success">{success}</Alert>}
-          <Select displayEmpty value={houseId} onChange={(e) => { setHouseId(e.target.value); setSelectedTenancyId(''); }} fullWidth>
-            <MenuItem value="">Select house</MenuItem>
-            {(housesPage?.items ?? []).map((h) => (
-              <MenuItem key={h._id} value={h._id}>
-                {h.houseNumber}
-                {h.tenant?.name ? ` · ${h.tenant.name}` : ''}
-              </MenuItem>
-            ))}
-          </Select>
+          <HouseSearchSelect value={house} onChange={(h) => { setHouse(h); setSelectedTenancyId(''); setOptPage(1); setOptSearch(''); }} />
           <TextField
             label="Rent month"
             type="month"
             value={period}
-            onChange={(e) => { setPeriod(e.target.value); setSelectedTenancyId(''); }}
+            onChange={(e) => { setPeriod(e.target.value); setSelectedTenancyId(''); setOptPage(1); setOptSearch(''); }}
             InputLabelProps={{ shrink: true }}
             error={!periodValid}
             helperText="The month this payment is for. It decides which tenancy is charged."
@@ -239,6 +232,14 @@ function RecordPaymentDialog({
                 {choice.options.map((o) => (
                   <div key={o.tenancyId}>{describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}{o.reason ? ` — ${o.reason}` : ''}</div>
                 ))}
+                <Stack spacing={1} sx={{ mt: 1 }}>
+                  <TextField size="small" label="Search tenancies by tenant name" value={optSearch} onChange={(e) => { setOptSearch(e.target.value); setOptPage(1); }} />
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Button size="small" disabled={optPage <= 1} onClick={() => setOptPage((n) => Math.max(1, n - 1))}>Newer</Button>
+                    <Typography variant="caption">Page {optPage}{optionsQuery.data?.total != null ? ` · ${optionsQuery.data.total} tenancies` : ''}</Typography>
+                    <Button size="small" disabled={!optionsQuery.data?.hasMore} onClick={() => setOptPage((n) => n + 1)}>Older</Button>
+                  </Stack>
+                </Stack>
               </Alert>
             )
           ) : null}
@@ -249,9 +250,7 @@ function RecordPaymentDialog({
             onChange={(e) => setReference(e.target.value)}
             helperText="A reference can only be used once per client; repeating the same details returns the original payment"
           />
-          {housesPage && housesPage.pagination.total > housesPage.items.length ? (
-            <Alert severity="info">Showing the first {housesPage.items.length} of {housesPage.pagination.total} occupied houses. Use the house workspace to record a payment for a house not listed.</Alert>
-          ) : null}
+
           <Typography variant="caption" color="text.secondary">
             The server charges the selected tenancy and allocates oldest outstanding charge first.
           </Typography>

@@ -1,13 +1,132 @@
 # Tycoon Estates Frontend — Product Requirements
 
+## Authoritative M-PESA product correction — 2026-11-19
+
+This section supersedes the earlier review-branch assumption that one M-PESA Till/shortcode maps to exactly one estate. That restriction is present in the current implementation, but it is not the intended product rule. The current Superadmin profile-create UI/API is a narrow first slice and must not be treated as the final merchant model or as production-ready M-PESA onboarding.
+
+### Merchant ownership and estate relationships
+
+- A `Client` owns one or more merchant profiles. A merchant profile represents one actual Safaricom collection identity: either a `PAYBILL` shortcode or a `BUY_GOODS_TILL` shortcode.
+- A merchant shortcode belongs to one Tycoon Client within the configured Daraja provider environment. The same shortcode must not resolve to different clients. Callback resolution and the database uniqueness rule must enforce the same identity boundary.
+- One merchant profile may serve multiple estates belonging to its owning Client. An estate may have multiple collection profiles where the business has more than one legitimate channel. Model this as an explicit many-to-many merchant-estate mapping, not by duplicating merchant profiles or storing one authoritative `estateId` on the merchant.
+- Superadmin onboarding must let the Manager select the merchant type and map one shortcode to multiple estates in the same client. Every mapping must be audited and server-validated against the selected Client.
+- A merchant-estate mapping proves that the merchant may collect for that estate. It does not prove that every receipt from that merchant belongs to every mapped estate.
+
+### PayBill versus Buy Goods allocation
+
+- **PayBill:** preserve the provider's `BillRefNumber` as receipt data. Tycoon should issue or manage a stable collection reference for the intended tenant + estate under a merchant profile. The reference mapping must resolve to exactly one client, estate and tenant. A missing, unknown, retired, or ambiguous reference remains unallocated for review; the system must never guess an estate.
+- Safaricom's C2B contract makes `BillRefNumber` optional in the callback schema. Therefore a callback can be a valid provider event yet still be insufficient for automatic rent allocation. PayBill auto-allocation requires a configured and successfully resolved Tycoon reference; otherwise preserve the canonical receipt without posting it.
+- **Buy Goods Till:** do not assume it provides the same tenant account-reference semantics as PayBill. Keep the existing tenant-specific SMS evidence/link workflow for identifying the intended tenant and estate. Posting must verify that the selected merchant profile is actively mapped to the link's estate.
+- A receipt is merchant-scoped when ingested. It becomes estate/tenant-attributed only after the relevant reference or evidence is resolved and all existing G5 checks pass. Do not set an estate from the fact that the merchant serves several estates.
+- Preserve the existing distinction among provider receipt (`MpesaTransaction`), tenant-submitted SMS evidence (`MpesaSmsSubmission`), and posted G3 Payment/Ledger records. This product correction does not authorize bypassing G5 verification, claim fencing, idempotency, audit, or posting gates.
+
+### Callback registration and Pull configuration
+
+- Daraja Consumer Key/Secret and the API environment belong to Tycoon's platform configuration, not to individual clients. Do not ask clients to provide or store Tycoon's app credentials.
+- Tycoon owns shared, platform-hosted webhook endpoints. The same configured C2B confirmation URL, optional validation URL, and Pull-results callback URL can be registered against each client merchant shortcode. Callback URLs are not client-hosted URLs and need not be unique per client.
+- Each merchant profile must retain safe registration evidence: the platform callback-configuration version/reference and the URL snapshot used for C2B/Pull registration, registration state, attempt/result timestamps, and safe provider response identifiers/codes. The profile records which shared callback configuration was registered; it does not own a client-specific callback server.
+- Pull registration also requires a nominated Safaricom MSISDN associated with the merchant shortcode's KYC. Store it in protected/encrypted form, expose only a masked value, and never put it in logs or ordinary DTOs. It is merchant-specific configuration, unlike the shared callback URL.
+- C2B external validation is optional and requires Safaricom activation for the shortcode. Do not assume it is active. The present source handler that unconditionally accepts validation is not sufficient for production; validation must check supported business references and fail safely.
+- Callback authenticity/abuse controls remain a release gate: the reviewed provider evidence has not established a cryptographic callback signature or equivalent authentication contract. Do not enable public callback processing or trust a shortcode field as authentication until that gate is resolved.
+- Registration acceptance is not the same as proven callback/Pull capability. Keep registration state, callback capability, Pull capability and operational state separate. A timeout/uncertain result must not be blindly retried as though no registration occurred.
+
+### Receipt visibility and estate isolation
+
+- A shared merchant can receive receipts for several estates. Estate-scoped transaction history must not return all receipts merely because the merchant profile is mapped to that estate.
+- For an estate-restricted user, return only receipts whose estate has been resolved through an exact PayBill collection reference or a completed, verified G5 attribution (`attributedEstateId`). Unknown/unallocated receipts must remain in a client-wide owner/admin review scope, not leak across mapped estates.
+- Client-wide owners/admins may have a separately authorized unallocated-receipt review view. Platform Superadmin monitoring remains a separate, explicit client scope.
+- Continue to render canonical M-PESA receipts inside the existing Transactions experience. Include the BillRefNumber and allocation state where safe; do not create a second ledger or confuse unallocated receipts with posted rent.
+
+### Banking provider expansion
+
+Banking remains adapter-based. Co-operative Bank is the first implemented provider path; future banks should be added by completing their existing adapter contracts, provider-specific credential requirements, capability declarations and verification gates. The current registry's reserved adapter identifiers must not be represented as fully implemented or operational merely because a class/shell exists. This is a delivery/readiness distinction, not a product architecture restricted permanently to Co-op.
+
+### Required acceptance scenarios
+
+1. One Client has three estates and one PayBill. One merchant profile maps to all three estates; it is not duplicated three times.
+2. Each estate's tenant receives a distinct, stable PayBill account reference. A callback with a reference resolves to exactly that tenant and estate.
+3. Empty, malformed, unknown, reused or ambiguous BillRefNumber values never cause automatic estate assignment or G3 posting.
+4. A Till mapped to several estates still uses the existing tenant-evidence route; a receipt cannot be exposed to or posted for another estate just because the Till is shared.
+5. Cross-client duplicate shortcode creation is rejected, and callback resolution returns exactly one merchant profile in the configured environment.
+6. Estate-restricted receipt history does not expose receipts allocated to another estate or unallocated receipts.
+7. Existing G5 idempotency, amount/time evidence, receipt claim fencing, tenant-credit settlement, durable audit and posting gates remain intact.
+
+### Delivery status
+
+These are target product and architecture requirements, not claims that the current branch implements them. The current `BUY_GOODS_TILL` + single-`estateId` code must be redesigned and migrated before shared PayBill/multi-estate support can be marked implemented. Existing review PRs remain review-only; no deployment or provider readiness is implied.
+
+
+## Implementation update from frontend review — 2026-11-19 (review branch, not merged)
+
+Review branches: frontend and backend `docs/superadmin-onboarding-and-history`. These changes are not on `main` yet; use the branch/PR head as the source of truth.
+
+- **New Tenant:** the modal owns estate selection and separates loading, request error, true-empty and available-house states. The backend `GET /houses?estateId=...&status=vacant` now excludes inactive houses, non-null tenant links and houses with ACTIVE Tenancy records; `tenancyService.open` repeats the vacancy checks inside the Mongo transaction.
+- **Banking onboarding:** the existing Co-operative Bank connection/account UI is extracted into `BankingSetupPanel` and embedded in Superadmin client Integrations. API calls supply one explicit clientId in query scope; bank mutation routes permit SUPER_ADMIN only after `clientContext` and `requireProduct('BANKING')`. Existing encrypted `BankCredential` is reused. Client login credentials remain created by client provisioning, not by this integration panel.
+- **M-PESA merchant profile (current review-branch slice):** Superadmin can create a client-scoped DRAFT Buy Goods Till profile, but the current API requires one estate mapping. This is only the initial implementation shape; the authoritative product target now supports PayBill + Buy Goods and many-to-many merchant-estate mappings (see the correction section above).
+- **M-PESA transaction history:** the existing `/transactions` page now switches between Banking transactions and canonical M-PESA receipt history when the corresponding entitlements are assigned. M-PESA reads use `GET /mpesa-transactions`, a safe paginated DTO, selected client scope and enforced estate scope. SMS submissions remain in the separate review queue; ledger Payments remain distinct.
+- **Responsive Superadmin:** main content is shrinkable beside the navigation, evidence values wrap, and System Health cards move to two columns only at larger widths.
+
+### Deliberately incomplete / verification limits
+
+- Till profile creation leaves the profile in DRAFT. It does not trigger C2B or Pull registration: those provider calls require platform callback/validation URLs and a Pull nominated number that are not part of this client Till identity form. No provider registration success is implied.
+- The current review-branch schema still supports only one estate mapping and Buy Goods Till. This is a known implementation gap against the corrected product target, not a permanent product limitation. Do not duplicate shortcode profiles to work around it.
+- The Banking provider implemented by the existing form is Co-operative Bank. This change does not add other banks.
+- The backend requires the M-PESA merchant unique index for profile creation and canonical query indexes for history. If migrations/index readiness are missing, the endpoints fail closed with 503.
+- The New Tenant and M-PESA/banking flows have not been exercised in a browser against a live API. No frontend build or test result is claimed yet. The new backend unit tests have been added but not executed.
+- The manual-payment latest-50 mismatch is fixed in code on the review branches (resolution uses every period-covering tenancy; the option list is paginated and searchable). DB-backed verification has not been run.
+
+## Design review hardening — 2026-11-19
+
+Before implementation, the plan was challenged for hidden assumptions and unsafe shortcuts:
+
+1. **The implementation's one-estate shape is not the product rule.** The target is one merchant profile to many same-client estates through an explicit mapping relation. The current `estateId` field and G5 equality check are legacy implementation constraints to remove through a migration and posting-rule change. Duplicate profiles are not a workaround.
+2. **Create-profile is not provider registration.** C2B and Pull registration use Tycoon-owned shared callback endpoints registered against a merchant shortcode. The merchant profile must record the shared callback configuration version/snapshot and registration evidence. Pull additionally requires the shortcode's nominated MSISDN in protected storage. Profile creation must not invent URLs/numbers or promote a profile to ACTIVE/VERIFIED.
+3. **Merchant identity must agree across indexes and callbacks.** Current callback lookup searches by shortcode across clients, while the current unique index is only `(clientId,businessShortCode)`. The target must enforce one owner per provider shortcode within the configured environment, with a migration-controlled global identity index and fail-closed lookup.
+4. **Transaction history must not combine record types.** M-PESA history reads canonical MpesaTransaction receipts, not SMS submissions and not ledger Payment rows. The DTO must be safe and scope by client plus the selected estate's merchant profiles/attribution.
+5. **Banking access stays entitlement-gated.** Superadmin must use one explicit active clientId through clientContext. The existing BANKING entitlement check remains active. Do not add a global/bypass route or store new credentials. Existing Co-op credentials remain encrypted in BankCredential.
+6. **Tenant availability must be authoritative.** Filter active houses and exclude active tenancies, but also recheck inside the same Mongo transaction that opens the tenancy. A dropdown is not a concurrency or authorization boundary.
+7. **No broad UI redesign.** Fix the platform content shrink/wrap and breakpoint issues at the shell/evidence components. Do not replace the whole Superadmin UI or introduce a new design system.
+
+## Current implementation and review amendment — 2026-11-19 (authoritative)
+
+Current main commits: frontend e525b046b73254c6a49dc163319efa3a087169a3; backend 25d9969eb4f1c734f360337f0a3d64b83d465a6a. Original product goals and history below are preserved. This amendment supersedes older implementation-status statements where they conflict.
+
+### New Tenant house selection
+
+The New Tenant dialog currently depends on the estate filter above the Tenants page. It does not query houses until that global filter has an estate selected. It also treats an undefined result or failed request as an empty list because loading and error states are not rendered. The current empty message is therefore not proof that the client has no vacant houses. The dialog must own its estate selection and distinguish loading, request failure, true empty and available results. Creation must revalidate availability server-side.
+
+### Superadmin Banking onboarding
+
+Client provisioning already creates the CLIENT_OWNER login credentials. Bank connection credentials are a separate integration setup. Existing /bank/connections and /bank/accounts routes implement connection creation, reauthorization, disconnection and account registration using encrypted BankCredential storage. The Superadmin client Integrations tab is currently read-only. clientContext already supports SUPER_ADMIN with an explicit clientId, but current connection/account write routes authorize only CLIENT_OWNER and CLIENT_ADMIN. The console should reuse the existing workflow with selected-client scoping; the backend should narrowly allow SUPER_ADMIN only after clientContext validation and the existing BANKING entitlement gate. Do not add another credential store or expose secrets in DTOs, caches, logs or audit metadata.
+
+### Superadmin M-PESA merchant onboarding
+
+The current review branch adds a DRAFT Buy Goods Till profile-create route and form, but it requires a single estateId and does not register callbacks. The target Superadmin workflow is one merchant profile per shortcode, merchant type PAYBILL or BUY_GOODS_TILL, plus multi-estate mappings and safe registration evidence. Tycoon owns Daraja app credentials and shared webhook endpoints. Do not ask for client-hosted callback URLs or platform app secrets. The profile remains DRAFT until provider-specific registration and operational evidence are separately verified.
+
+### Existing transaction history: Banking and M-PESA sources
+
+M-PESA history belongs in the existing Transactions experience, not a separate new product page. The existing /transactions screen and GET /transactions endpoint currently display BankTransaction rows only. MpesaTransaction records exist, but there is no client-scoped paginated read endpoint or frontend data source. Extend the existing Transactions screen to display the selected entitled source: Banking transactions and canonical M-PESA provider receipts. Preserve the differences between MpesaTransaction provider receipts, MpesaSmsSubmission evidence and posted Payment ledger entries. An unverified receipt must never be presented as a posted rent payment.
+
+### Superadmin responsive layout
+
+The platform shell main content must be allowed to shrink beside the fixed navigation. The generic evidence renderer must wrap long values and avoid min-content overflow. System Health and diagnostics cards must stack at constrained widths; menus and drawers must not obscure active content or create horizontal page overflow. Acceptance must cover mobile, tablet, laptop and desktop widths.
+
+### Merged P0 status and open verification
+
+- HouseType creation now validates and persists estateId, and attempted ownership changes are rejected.
+- BankTransaction list, unmatched and assignment responses now use an allowlisted backend DTO.
+- Manual payments resolve and post against one validated tenancy for the requested period.
+- Resolved in code (not yet DB/browser verified): manual-options now resolves from all period-covering tenancies and pages the browsable list, so it no longer disagrees with the payment resolver.
+- Nineteen DB-backed integration tests were added but not executed because no MongoDB replica set was available. No live API or browser acceptance is claimed.
+
 > Status: planning baseline updated for Superadmin platform V2  
 > Audited: 2026-11-15  
-> Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `dc34279bc8f8fcf98ffc9ce5029a7ea38c4f059d`  
+> Frontend code baseline: `jolla3/tycoon-frontend` `main` @ `e525b046b73254c6a49dc163319efa3a087169a3`  
 > Documentation branch: `docs/frontend-planning-baseline`  
 > Backend contract baseline: `jolla3/tycoon-estates-backend` `feat/superadmin-subscription-entitlements` @ `cc98900ba338f5b1e19bdcfe923e4dc45bc87745`  
 
 
-> **Correction note (2026-11-18):** the backend contract baseline above was a feature branch. The authoritative backend is `main` @ `db7af3d49e827ede7f2cb9a7dbd88574c69224d9`. Where this document and `docs/branch-correction/*` differ (HouseType `estateId` direction, manual-payment tenancy identity, Superadmin response shapes, subscription presence), the branch-correction pack and backend source win. Historical text below is preserved.
+> **Correction note (2026-11-18):** the backend contract baseline above was a feature branch. The authoritative backend is `main` @ `25d9969eb4f1c734f360337f0a3d64b83d465a6a`. Where this document and `docs/branch-correction/*` differ (HouseType `estateId` direction, manual-payment tenancy identity, Superadmin response shapes, subscription presence), the branch-correction pack and backend source win. Historical text below is preserved.
 > Backend status: platform and entitlement changes are implemented in source; behavioural verification is pending.  
 > Scope: frontend product and integration planning only. This document does not claim that the current screens have passed runtime acceptance.
 
@@ -447,3 +566,33 @@ Unknown, null and unverified financial values render as "Not available"; verifie
 ## Implementation status
 
 The frontend now implements the M-PESA public `/pay` page, operator link panel and review queue, the bank connection lifecycle, estate-scoped server-side filtering and the Platform V2 screens. The authoritative per-item status (IMPLEMENTED / BLOCKED BY BACKEND / NOT IMPLEMENTED), files and blockers are in section 19 of `docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md`. Nothing was exercised against a live backend.
+## Co-op Connect 2.0.0 implementation gate — 2026-11-20
+
+This section defines the frontend target against the backend implementation baseline. It is a correction specification, not evidence that the open implementation PR already satisfies it.
+
+### Normal connection credentials
+- The ordinary Co-op connection form collects only Consumer Key (CK) and Consumer Secret (SK), represented in the Tycoon API as `consumerKey` and `consumerSecret`.
+- Do not collect customer username, password, PIN, OTP or a free-form OAuth scope. Co-op documents more than one grant; the selected grant and resource scope are provider configuration supported by resource evidence, not a landlord form field.
+- Do not confuse Co-op CK/SK with the selected Tycoon Client ID used for Superadmin request scoping or with `BankConnection.clientId` on the backend.
+- Secrets remain transient component state, never enter React Query or browser storage, and are cleared on close/cancel/success. When an API error retains them for a retry, expose an explicit discard/clear action and keep the UI copy accurate.
+
+### Connection and account state
+- A BankAccount's local validation/link state is not its parent BankConnection authentication state. The account card must derive effective state from the account's `connectionId` and the live connection list, or consume an explicit safe effective-state field returned by the backend.
+- Missing parent connection, mismatched client/provider, or any parent state other than active means every operation is unavailable. Do not use stale child `connectionStatus` or entitlement flags as authority.
+- A create response with HTTP 201 and `status: failed` means the resource was created but provider authorization failed. Render the failed state and safe error; do not show it as an active connection.
+- Failed reauthorization must leave the previous credential version active. Display the returned safe error category and do not imply that new credentials were promoted.
+
+### Operation labels and capabilities
+- Unknown/omitted capabilities fail closed: use explicit `=== true`, not `!== false`.
+- The existing Co-op sync endpoint currently selects a FullStatement date-window strategy. Its button must describe a recent statement-window sync and require `statement === true`; it must not claim to run AccountTransactions polling.
+- AccountTransactions polling remains unavailable until its transaction identity/list contract is verified. Balance and webhook controls remain unavailable until their resource and readiness gates are met.
+- Manual statement import requires the same effective parent state and readiness policy as the backend. The UI is not an authorization boundary; backend checks remain mandatory.
+- Label the entered account name as an internal Tycoon display label. Account Validation does not provide a verified account-holder name.
+
+### Superadmin scoping and cache
+- Every Superadmin bank request retains one explicit selected `clientId` query scope. Never move this value into request-body identity or a global/bypass route.
+- Mutations invalidate the selected client's banking connection/account queries and `platformKeys.client(clientId)`, so the platform summary cannot remain stale after connection or account changes.
+- Existing BANKING product entitlement and server-side `clientContext` enforcement remain mandatory.
+
+### Required frontend acceptance
+Test CK/SK-only validation and request bodies; failed-create response state; failed-reauthorization state; explicit secret discard after failure; parent active/failed/reauth-required/disconnected/missing cases; undefined capability denial; statement-vs-poll labels and gates; internal account-name copy; selected-client scoping; and client-summary cache invalidation. The implementation baseline has no dedicated banking panel/API suite proving these cases yet.
