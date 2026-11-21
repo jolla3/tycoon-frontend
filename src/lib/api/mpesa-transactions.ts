@@ -42,7 +42,27 @@ export interface MpesaTransactionQuery {
   endDate?: string;
 }
 
+export interface SummaryBucket { count: number; amountCents: number }
+export type MpesaSummaryState = 'POSTED' | 'QUARANTINED' | 'UNALLOCATED' | 'ATTRIBUTED';
+
+/**
+ * GET /mpesa-transactions/summary. Every receipt is in exactly ONE `states`
+ * bucket, so the buckets sum to `providerObserved`. `verification` is a second
+ * breakdown of the same receipts, not extra money. No raw payload is returned.
+ */
+export interface MpesaSummary {
+  window: { startDate: string; endDate: string };
+  scope: 'CLIENT_WIDE' | 'ESTATE_RESTRICTED';
+  providerObserved: SummaryBucket;
+  states: Record<MpesaSummaryState, SummaryBucket>;
+  verification: Record<MpesaVerificationState, SummaryBucket>;
+  posted: { receiptCount: number; paymentCount: number; amountCents: number; creditEarnedCents: number };
+  byEstate: Array<{ estateId: string | null; providerObserved: SummaryBucket; states: Record<MpesaSummaryState, SummaryBucket> }>;
+}
+
 export const mpesaTransactionsApi = {
+  summary: (query: { startDate: string; endDate: string; estateId?: string }) =>
+    apiClient.get<MpesaSummary>('/mpesa-transactions/summary', query as Record<string, QueryValue>),
   list: (query: MpesaTransactionQuery = {}) =>
     apiClient.get<Paginated<MpesaTransactionRow>>('/mpesa-transactions', query as Record<string, QueryValue>),
 };

@@ -22,6 +22,8 @@ import { useCachedQuery } from '@/hooks/use-cached-query';
 import { useSession } from '@/features/auth/session-context';
 import { identityKeyFromUser } from '@/lib/session/local-session-marker';
 import type { BankTransaction, MatchStatus } from '@/types/api';
+import { MpesaSummaryCard } from '@/features/mpesa/summary-card';
+import { usePeriod } from '@/features/dashboard/period-context';
 
 type TransactionSource = 'BANKING' | 'MPESA';
 
@@ -43,6 +45,7 @@ export default function TransactionsPage() {
   const [postingState, setPostingState] = useState<'' | MpesaPostingState>('');
   const [allocationState, setAllocationState] = useState<'' | MpesaAllocationState>('');
   const [page, setPage] = useState(1);
+  const { period } = usePeriod();
 
   const subscription = useQuery({
     queryKey: ['subscription', identity],
@@ -144,6 +147,8 @@ export default function TransactionsPage() {
           <FreshnessBadge freshness={freshness} cachedAt={cachedAt} />
         </Box>
       ) : null}
+
+      {source === 'MPESA' ? <MpesaSummaryCard period={period.period} periodLabel={period.label} estateId={estateId || undefined} identity={identity} /> : null}
 
       <Card sx={{ p: 2, mb: 2 }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap">
