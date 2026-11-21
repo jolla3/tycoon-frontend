@@ -74,3 +74,30 @@ describe('older tenancies beyond the first page', () => {
     expect(tenancyToSubmit(s, 'T1')).toBeNull();
   });
 });
+
+describe('ambiguous: browse every eligible tenancy (not capped at the first 20)', () => {
+  const eligible = Array.from({ length: 20 }, (_, i) => opt({ tenancyId: `E${i}` }));
+  const state = () => resolveChoice(opts({
+    resolution: 'AMBIGUOUS', eligibleOptions: eligible, eligibleTotal: 35, total: 80,
+    options: [opt({ tenancyId: 'LATE-ELIGIBLE' }), opt({ tenancyId: 'OLD', coversPeriod: false, reason: 'ended', status: 'CLOSED' })],
+  }));
+  it('reports exact eligible vs historical counts, not the sample size', () => {
+    const s = state();
+    expect(s.kind).toBe('choose');
+    if (s.kind === 'choose') { expect(s.eligibleCount).toBe(35); expect(s.historicalCount).toBe(80); expect(s.browse).toHaveLength(2); }
+  });
+  it('an eligible tenancy beyond the 20-item sample can be selected from a browsed page', () => {
+    const picked = opt({ tenancyId: 'LATE-ELIGIBLE' });
+    expect(tenancyToSubmit(state(), 'LATE-ELIGIBLE', picked)).toBe('LATE-ELIGIBLE');
+  });
+  it('a non-covering tenancy can never be submitted, and a stale selection is rejected', () => {
+    const old = opt({ tenancyId: 'OLD', coversPeriod: false });
+    expect(tenancyToSubmit(state(), 'OLD', old)).toBeNull();
+    expect(tenancyToSubmit(state(), 'LATE-ELIGIBLE', null)).toBeNull();
+    expect(tenancyToSubmit(state(), 'LATE-ELIGIBLE', opt({ tenancyId: 'OTHER' }))).toBeNull();
+  });
+  it('stays ambiguous when the sample holds one row but the exact count is higher', () => {
+    const s = resolveChoice(opts({ resolution: 'AMBIGUOUS', eligibleOptions: [opt({ tenancyId: 'A' })], eligibleTotal: 3, options: [] }));
+    expect(s.kind).toBe('choose');
+  });
+});

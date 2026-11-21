@@ -31,6 +31,8 @@ export interface ManualPaymentOptions {
   defaultTenancyId: string | null;
   /** Every tenancy that covers the period, independent of paging/search (older records included). */
   eligibleOptions?: TenancyOption[];
+  /** Exact count of tenancies that cover the period (eligibleOptions is a display-bounded sample of them). */
+  eligibleTotal?: number;
   /** One page of the house's tenancies (newest first), optionally filtered by tenant name. */
   options: TenancyOption[];
   page?: number;

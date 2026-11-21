@@ -10,7 +10,7 @@ import { Receipt, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
-import { paymentsApi } from '@/lib/api/payments';
+import { paymentsApi, type TenancyOption } from '@/lib/api/payments';
 import { buildManualPaymentInput, describeTenancy, resolveChoice, tenancyToSubmit } from '@/features/payments/manual-payment';
 import { HouseSearchSelect } from '@/features/payments/house-search-select';
 import type { House as HouseRow } from '@/types/api';
@@ -143,6 +143,48 @@ export default function PaymentsPage() {
   );
 }
 
+function TenancyBrowser({
+  rows, period, selectedId, onSelect, search, onSearch, page, total, hasMore, onPage, loading,
+}: {
+  rows: TenancyOption[];
+  period: string;
+  selectedId: string;
+  onSelect: (o: TenancyOption) => void;
+  search: string;
+  onSearch: (v: string) => void;
+  page: number;
+  total?: number;
+  hasMore: boolean;
+  onPage: (fn: (n: number) => number) => void;
+  loading: boolean;
+}) {
+  return (
+    <Stack spacing={1}>
+      <TextField size="small" label="Search tenancies by tenant name" value={search} onChange={(e) => onSearch(e.target.value)} />
+      <Stack spacing={0.5} sx={{ opacity: loading ? 0.6 : 1 }}>
+        {rows.length === 0 ? <Typography variant="body2" color="text.secondary">No tenancies match.</Typography> : null}
+        {rows.map((o) => (
+          <Button
+            key={o.tenancyId}
+            size="small"
+            variant={o.tenancyId === selectedId ? 'contained' : 'outlined'}
+            disabled={!o.coversPeriod}
+            onClick={() => onSelect(o)}
+            sx={{ justifyContent: 'flex-start', textAlign: 'left', textTransform: 'none' }}
+          >
+            {describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}{!o.coversPeriod && o.reason ? ` — ${o.reason}` : ''}
+          </Button>
+        ))}
+      </Stack>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Button size="small" disabled={page <= 1} onClick={() => onPage((n) => Math.max(1, n - 1))}>Newer</Button>
+        <Typography variant="caption">Page {page}{total != null ? ` · ${total} tenancies` : ''} · for {period}</Typography>
+        <Button size="small" disabled={!hasMore} onClick={() => onPage((n) => n + 1)}>Older</Button>
+      </Stack>
+    </Stack>
+  );
+}
+
 function RecordPaymentDialog({
   open,
   onClose,
@@ -160,6 +202,7 @@ function RecordPaymentDialog({
   const [reference, setReference] = useState('');
   const [period, setPeriod] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).slice(0, 7));
   const [selectedTenancyId, setSelectedTenancyId] = useState('');
+  const [selectedOption, setSelectedOption] = useState<TenancyOption | null>(null);
   const [optPage, setOptPage] = useState(1);
   const [optSearch, setOptSearch] = useState('');
   const periodValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
@@ -171,7 +214,7 @@ function RecordPaymentDialog({
     staleTime: 0,
   });
   const choice = optionsQuery.data ? resolveChoice(optionsQuery.data) : resolveChoice(undefined);
-  const tenancyId = tenancyToSubmit(choice, selectedTenancyId);
+  const tenancyId = tenancyToSubmit(choice, selectedTenancyId, selectedOption);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -202,12 +245,12 @@ function RecordPaymentDialog({
           {!canReach && <Alert severity="warning">Recording a payment requires connectivity.</Alert>}
           {formError && <Alert severity="error">{formError}</Alert>}
           {success && <Alert severity="success">{success}</Alert>}
-          <HouseSearchSelect value={house} onChange={(h) => { setHouse(h); setSelectedTenancyId(''); setOptPage(1); setOptSearch(''); }} />
+          <HouseSearchSelect value={house} onChange={(h) => { setHouse(h); setSelectedTenancyId(''); setSelectedOption(null); setOptPage(1); setOptSearch(''); }} />
           <TextField
             label="Rent month"
             type="month"
             value={period}
-            onChange={(e) => { setPeriod(e.target.value); setSelectedTenancyId(''); setOptPage(1); setOptSearch(''); }}
+            onChange={(e) => { setPeriod(e.target.value); setSelectedTenancyId(''); setSelectedOption(null); setOptPage(1); setOptSearch(''); }}
             InputLabelProps={{ shrink: true }}
             error={!periodValid}
             helperText="The month this payment is for. It decides which tenancy is charged."
@@ -220,12 +263,28 @@ function RecordPaymentDialog({
             ) : choice.kind === 'unique' ? (
               <Alert severity="info">Recorded against: {describeTenancy(choice.option, (d) => dateFormat(d, 'DD MMM YYYY'))}</Alert>
             ) : choice.kind === 'choose' ? (
-              <Select displayEmpty value={selectedTenancyId} onChange={(e) => setSelectedTenancyId(e.target.value)} fullWidth>
-                <MenuItem value="">Which tenancy is this payment for?</MenuItem>
-                {choice.options.map((o) => (
-                  <MenuItem key={o.tenancyId} value={o.tenancyId}>{describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}</MenuItem>
-                ))}
-              </Select>
+              <Stack spacing={1}>
+                <Alert severity="info">
+                  {choice.eligibleCount} tenancies can take this payment for {period}
+                  {choice.historicalCount != null ? ` (of ${choice.historicalCount} this house has had)` : ''}. Pick one; the server re-checks it.
+                </Alert>
+                {selectedOption && selectedOption.coversPeriod ? (
+                  <Alert severity="success">Selected: {describeTenancy(selectedOption, (d) => dateFormat(d, 'DD MMM YYYY'))}</Alert>
+                ) : null}
+                <TenancyBrowser
+                  rows={choice.browse}
+                  period={period}
+                  selectedId={selectedTenancyId}
+                  onSelect={(o) => { setSelectedTenancyId(o.tenancyId); setSelectedOption(o); }}
+                  search={optSearch}
+                  onSearch={(v) => { setOptSearch(v); setOptPage(1); }}
+                  page={optPage}
+                  total={optionsQuery.data?.total}
+                  hasMore={Boolean(optionsQuery.data?.hasMore)}
+                  onPage={setOptPage}
+                  loading={optionsQuery.isFetching}
+                />
+              </Stack>
             ) : (
               <Alert severity="warning">
                 No single tenancy fully covers {period} for this house, so the payment cannot be attributed to a tenant. Partial-month billing is not supported yet.

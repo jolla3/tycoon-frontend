@@ -5,7 +5,17 @@ import type { ManualPaymentInput, ManualPaymentOptions, TenancyOption } from '@/
 export type TenancyChoiceState =
   | { kind: 'loading' }
   | { kind: 'unique'; option: TenancyOption }
-  | { kind: 'choose'; options: TenancyOption[] }
+  | {
+      kind: 'choose';
+      /** Bounded sample of covering tenancies (kept for resolution/back-compat). */
+      options: TenancyOption[];
+      /** Exact number of tenancies that can take this payment. */
+      eligibleCount: number;
+      /** Exact number of tenancies the house has had (any status), i.e. the browsable set. */
+      historicalCount: number | null;
+      /** The current browsable page (search/pagination), eligible or not. */
+      browse: TenancyOption[];
+    }
   | { kind: 'none'; options: TenancyOption[] };
 
 /** Decide what the dialog shows. `selectedTenancyId` only counts when it is a covering option. */
@@ -18,14 +28,31 @@ export function resolveChoice(options: ManualPaymentOptions | undefined): Tenanc
       ?? options.options.find((o) => o.tenancyId === options.defaultTenancyId);
     if (option) return { kind: 'unique', option };
   }
-  if (covering.length > 1) return { kind: 'choose', options: covering };
+  if (covering.length > 1 || (options.eligibleTotal ?? 0) > 1) {
+    return {
+      kind: 'choose',
+      options: covering,
+      eligibleCount: Math.max(options.eligibleTotal ?? 0, covering.length),
+      historicalCount: options.total ?? null,
+      browse: options.options,
+    };
+  }
   return { kind: 'none', options: options.options };
 }
 
 /** The tenancy id that will be sent, or null when the form must not submit. */
-export function tenancyToSubmit(state: TenancyChoiceState, selectedTenancyId: string): string | null {
+export function tenancyToSubmit(
+  state: TenancyChoiceState,
+  selectedTenancyId: string,
+  /** The option the user picked while browsing; may come from a page that is no longer loaded. */
+  selectedOption?: TenancyOption | null
+): string | null {
   if (state.kind === 'unique') return state.option.tenancyId;
-  if (state.kind === 'choose') return state.options.some((o) => o.tenancyId === selectedTenancyId) ? selectedTenancyId : null;
+  if (state.kind === 'choose') {
+    if (state.options.some((o) => o.tenancyId === selectedTenancyId)) return selectedTenancyId;
+    // Browsed selection: only a tenancy that covers the period counts. The server re-validates it independently.
+    if (selectedOption && selectedOption.tenancyId === selectedTenancyId && selectedOption.coversPeriod) return selectedTenancyId;
+  }
   return null;
 }
 
