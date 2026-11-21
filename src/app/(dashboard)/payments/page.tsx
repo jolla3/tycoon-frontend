@@ -52,7 +52,7 @@ export default function PaymentsPage() {
 
   const columns: DataTableColumn<Payment>[] = [
     { key: 'date', header: 'Date', render: (p) => dateFormat(p.paymentDate, 'DD MMM YYYY') },
-    { key: 'reference', header: 'Reference', render: (p) => p.paymentReference ?? '—' },
+    { key: 'reference', header: 'Reference', render: (p) => p.paymentReference ?? '\u2014' },
     { key: 'period', header: 'Period', render: (p) => p.period },
     { key: 'origin', header: 'Source', render: (p) => <PaymentOriginChip origin={p.origin} /> },
     { key: 'status', header: 'Status', render: (p) => <PaymentStatusChip status={p.status} /> },
@@ -120,7 +120,7 @@ export default function PaymentsPage() {
                 <PaymentStatusChip status={p.status} />
               </Stack>
               <Typography variant="body2" color="text.secondary">
-                {p.paymentReference ?? 'No reference'} · {dateFormat(p.paymentDate, 'DD MMM YYYY')}
+                {p.paymentReference ?? 'No reference'} \u00b7 {dateFormat(p.paymentDate, 'DD MMM YYYY')}
               </Typography>
             </Card>
           )}
@@ -163,7 +163,8 @@ function RecordPaymentDialog({
   const [amountKes, setAmountKes] = useState('');
   const [reference, setReference] = useState('');
   const [paymentDate, setPaymentDate] = useState(() => nairobiToday());
-  const [tenderMethod, setTenderMethod] = useState<TenderMethod | ''>('MPESA');
+  // Operator must choose the method explicitly (do not default to MPESA).
+  const [tenderMethod, setTenderMethod] = useState<TenderMethod | ''>('');
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [balanceAfter, setBalanceAfter] = useState<number | null>(null);
@@ -196,8 +197,8 @@ function RecordPaymentDialog({
       const afterLabel = formatTenantBalance(res.balanceAfterCents ?? res.remainingBalanceCents ?? null);
       setSuccess(
         res.reused
-          ? 'Payment already recorded (idempotent — no double allocation).'
-          : `Payment recorded${afterLabel ? `. Tenant balance now: ${afterLabel}` : ''}.`
+          ? 'Payment already recorded (idempotent \u2014 no double allocation).'
+          : `Payment recorded${afterLabel ? `. Tenant account now: ${afterLabel}` : ''}.`
       );
       onSaved();
     },
@@ -242,7 +243,7 @@ function RecordPaymentDialog({
             contextQuery.isError ? (
               <Alert severity="error">Could not load occupancy for this house. Nothing was changed.</Alert>
             ) : contextQuery.isFetching && !ctx ? (
-              <Typography variant="body2" color="text.secondary">Checking occupancy…</Typography>
+              <Typography variant="body2" color="text.secondary">Checking occupancy\u2026</Typography>
             ) : ctx && !occupancyOk ? (
               <Alert severity="warning">{ctx.occupancy?.reason || 'This house cannot receive a payment right now.'}</Alert>
             ) : occupancyOk ? (
@@ -250,12 +251,12 @@ function RecordPaymentDialog({
                 Tenant: <strong>{tenantName || 'Resolved tenant'}</strong>
                 {balanceLabel != null && (
                   <Typography variant="body2" component="div" sx={{ mt: 0.5 }}>
-                    Account balance: {balanceLabel}
+                    Tenant account: {balanceLabel}
                   </Typography>
                 )}
                 {balanceLabel == null && (
                   <Typography variant="body2" component="div" sx={{ mt: 0.5 }} color="text.secondary">
-                    Account balance unavailable
+                    Tenant account balance unavailable
                   </Typography>
                 )}
               </Alert>
@@ -288,7 +289,12 @@ function RecordPaymentDialog({
             value={tenderMethod}
             onChange={(e) => setTenderMethod(e.target.value as TenderMethod)}
             required
+            SelectProps={{ displayEmpty: true }}
+            helperText="Choose how this payment was received"
           >
+            <MenuItem value="" disabled>
+              Select method
+            </MenuItem>
             {TENDER_METHODS.map((m) => (
               <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>
             ))}
@@ -303,12 +309,12 @@ function RecordPaymentDialog({
 
           {balanceAfter != null && (
             <Typography variant="caption" color="text.secondary">
-              Updated balance: {formatTenantBalance(balanceAfter) ?? '—'}
+              Updated tenant account: {formatTenantBalance(balanceAfter) ?? '\u2014'}
             </Typography>
           )}
 
           <Typography variant="caption" color="text.secondary">
-            The server attributes this receipt to the tenant who occupied the house on the payment date and allocates oldest outstanding charge first. Excess becomes tenant credit.
+            Existing tenant credit is applied first, then this receipt, against the tenant\u2019s oldest obligations across their tenancies in this estate. Excess becomes tenant credit. Recording does not generate rent charges.
           </Typography>
         </Stack>
       </DialogContent>
@@ -324,7 +330,7 @@ function RecordPaymentDialog({
             mutation.mutate();
           }}
         >
-          {mutation.isPending ? 'Saving…' : 'Record'}
+          {mutation.isPending ? 'Saving\u2026' : 'Record'}
         </Button>
       </DialogActions>
     </Dialog>
