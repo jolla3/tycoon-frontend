@@ -73,7 +73,7 @@ Review branches: frontend and backend `docs/superadmin-onboarding-and-history`. 
 - The Banking provider implemented by the existing form is Co-operative Bank. This change does not add other banks.
 - The backend requires the M-PESA merchant unique index for profile creation and canonical query indexes for history. If migrations/index readiness are missing, the endpoints fail closed with 503.
 - The New Tenant and M-PESA/banking flows have not been exercised in a browser against a live API. No frontend build or test result is claimed yet. The new backend unit tests have been added but not executed.
-- The manual-payment latest-50 mismatch is fixed in code on the review branches (resolution uses every period-covering tenancy; the option list is paginated and searchable). DB-backed verification has not been run.
+- The manual-payment selection cap is fixed in code on the review branches: the backend resolves with a two-row decision bound and separately paginates/searches the complete eligible set in MongoDB; the dialog lets the operator choose any eligible tenancy, explicitly, in the AMBIGUOUS case. Historical non-covering tenancies are information only. DB-backed verification has not been run.
 
 ## Design review hardening — 2026-11-19
 
@@ -116,7 +116,7 @@ The platform shell main content must be allowed to shrink beside the fixed navig
 - HouseType creation now validates and persists estateId, and attempted ownership changes are rejected.
 - BankTransaction list, unmatched and assignment responses now use an allowlisted backend DTO.
 - Manual payments resolve and post against one validated tenancy for the requested period.
-- Resolved in code (not yet DB/browser verified): manual-options now resolves from all period-covering tenancies and pages the browsable list, so it no longer disagrees with the payment resolver.
+- Resolved in code (unit + faked-API browser verified; DB-backed tests NOT EXECUTED): manual-options returns an eligible-only, server-paginated, server-searched `eligibleSelection` with an exact `eligibleTotal`, so every eligible tenancy is selectable and the dialog agrees with the payment resolver.
 - Nineteen DB-backed integration tests were added but not executed because no MongoDB replica set was available. No live API or browser acceptance is claimed.
 
 > Status: planning baseline updated for Superadmin platform V2  
