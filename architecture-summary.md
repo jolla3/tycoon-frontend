@@ -40,3 +40,10 @@ Next.js App Router client for landlord/house-centric property and rent operation
 ## Delivery order
 
 Backend G3/G4 API and policy contract first; then frontend DTO/form/screen alignment; then source tests, replica-set financial tests, browser network checks and responsive checks. Hold deposit lifecycle expansion until owner decisions are documented. Do not rebuild tenant-credit auto-apply, ledger, allocations, or M-PESA multi-estate mapping that already exist.
+
+## Hard holds
+
+- Keep full-month-only billing; do not add proration without the approved owner formula.
+- Do not expose or imply a combined deposit deduction/refund/move-out workflow. After a deposit payment, a requirement change is a conflict; do not offer adjustment behavior. Do not invent payment-before-requirement or overpayment rules.
+- A CK/SK form/API correction does not mean Co-op is operational. Render only backend-confirmed safe capabilities; keep unverified resources unavailable until resource-specific grant/scope, token lifecycle, production access and verification are established.
+- The frontend branch must not run or trigger production migrations. Database index inventory and read-only preflight are separate backend operational checks.
