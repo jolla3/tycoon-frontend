@@ -23,15 +23,29 @@ export interface TenancyOption {
   reason: string | null;
 }
 
+export interface EligibleSelection {
+  items: TenancyOption[];
+  page: number;
+  limit: number;
+  total: number;
+  hasMore: boolean;
+  search: string;
+}
+
 /** GET /payments/manual-options */
 export interface ManualPaymentOptions {
   houseId: string;
   period: string;
   resolution: 'UNIQUE' | 'AMBIGUOUS' | 'NONE';
   defaultTenancyId: string | null;
-  /** Every tenancy that covers the period, independent of paging/search (older records included). */
-  eligibleOptions?: TenancyOption[];
-  /** One page of the house's tenancies (newest first), optionally filtered by tenant name. */
+  /** Exact number of tenancies that fully cover the period; independent of page and search. */
+  eligibleTotal?: number;
+  /**
+   * The ONLY selectable list: eligible tenancies, newest first, paginated and searched by tenant
+   * name in the database. `total` is the exact count for the current search.
+   */
+  eligibleSelection?: EligibleSelection;
+  /** INFORMATIONAL history (all statuses/eligibility). Explains NONE; never selectable. */
   options: TenancyOption[];
   page?: number;
   limit?: number;
@@ -56,7 +70,10 @@ export interface ManualPaymentResult {
 export const paymentsApi = {
   list: (query: { page?: number; limit?: number; houseId?: string; tenantId?: string; estateId?: string } = {}) =>
     apiClient.get<Paginated<Payment>>('/payments', query as Record<string, QueryValue>),
-  manualOptions: (query: { houseId: string; period?: string; page?: number; limit?: number; search?: string }) =>
+  manualOptions: (query: {
+    houseId: string; period?: string; page?: number; limit?: number; search?: string;
+    eligiblePage?: number; eligibleLimit?: number; eligibleSearch?: string;
+  }) =>
     apiClient.get<ManualPaymentOptions>('/payments/manual-options', query as Record<string, QueryValue>),
   create: (input: ManualPaymentInput) => apiClient.post<ManualPaymentResult>('/payments', input),
 };

@@ -39,14 +39,13 @@ Frontend and backend review branches: `docs/superadmin-onboarding-and-history`. 
 
 - `POST /platform/clients/:clientId/mpesa-profiles` accepts `merchantType` (`PAYBILL`|`BUY_GOODS_TILL`), digits-only `businessShortCode`, optional `displayName` and `estateIds[]` (legacy single `estateId` still accepted). It rejects credentials/capability/operational-state fields (strict schema) and returns 409 when the shortcode is already owned on the platform.
 - `GET /platform/clients/:clientId/mpesa-profiles/:profileId`, `POST .../estates` `{estateId}`, `DELETE .../estates/:estateId`, `PUT .../pull-number` `{msisdn}` (response contains only `pullNominatedNumber: {captured, masked}`), `POST .../registrations/c2b|pull`, `POST .../registrations/:kind/reconcile` `{outcome}`, `GET|POST .../references`, `DELETE .../references/:referenceId`, `GET /platform/mpesa/callback-config`.
-- `GET /payments/manual-options` additionally accepts `page`, `limit` (<=50), `search` (tenant name) and returns `eligibleOptions` (all period-covering tenancies) plus a paginated `options` list.
+- `GET /payments/manual-options` accepts `houseId`, `period` (`YYYY-MM`), and two independent paging/search groups: `eligiblePage` (1–10000), `eligibleLimit` (1–50) and `eligibleSearch` (tenant name, ≤80 chars, regex-escaped) drive the **selectable** list; `page`, `limit`, `search` drive an informational history list. It returns `resolution` (`NONE`|`UNIQUE`|`AMBIGUOUS`), `defaultTenancyId` (only when UNIQUE), `eligibleTotal` (exact count of tenancies fully covering the period, independent of page/search), `eligibleSelection {items,page,limit,total,hasMore,search}` (eligible-only, filtered, sorted and paginated in MongoDB; `total` is the exact count for the current search) and `options` (historical, all statuses; explains `NONE`; **never selectable**).
 - `GET /mpesa-transactions` accepts `estateId`, page/limit, `verificationState`, `postingState`, `allocationState`, `businessShortCode`, `startDate`, `endDate`; response is an allowlisted paginated canonical receipt DTO that includes `allocationState`, `allocationReason` and `allocatedEstateId`.
 - Existing `/bank/connections` and `/bank/accounts` now accept selected `clientId` in query for Superadmin flows; request bodies remain free of clientId.
 
 ### Remaining known issues
 
-- The manual-payment latest-50 mismatch is fixed in code: the resolver and the form use `eligibleOptions` (every period-covering tenancy) and the browsable list is paginated/searchable. DB-backed tests are NOT EXECUTED.
-- The manual-payment house picker still loads the first 100 occupied houses and tells the user when more exist; it has no search.
+- The manual-payment selection cap is fixed in code: the AMBIGUOUS dialog pages and searches the complete eligible set (`eligibleSelection`), so tenancy 21+ is reachable. Historical non-covering tenancies are shown only as information for `NONE`. Unit and faked-API browser checks were run; DB-backed tests are NOT EXECUTED.
 - No UI exists yet for assigning references to tenants or sending them (backend routes exist). Callback authentication, Pull eligibility and Pull transaction-type fixtures remain unverified.
 
 ## Design review hardening — 2026-11-19
@@ -674,5 +673,5 @@ The baseline does not prove dedicated component/API tests, browser behaviour, pr
 ## Review round 2 additions (frontend)
 
 - `ClientMpesaProfile.pullRegistrationEligible` (server fail-closed flag). While false the Superadmin panel shows why and never enables **Register Pull**; the nominated number can still be saved.
-- Manual-payment dialog: house selection is a debounced server-side search (`GET /houses?search&limit=20`), with no status filter (historic tenancies on vacant houses are selectable). Tenancy options still come from `GET /payments/manual-options` (`eligibleOptions`, `eligibleTotal`, paged `options`).
+- Manual-payment dialog: house selection is a debounced server-side search (`GET /houses?search&limit=20`), with no status filter (historic tenancies on vacant houses are selectable). Tenancy choices come from `GET /payments/manual-options` (`eligibleSelection` + `eligibleTotal`); the AMBIGUOUS state shows a searchable, paginated selector with an explicit selection that persists across pages and clears on house/period change. UNIQUE auto-uses `defaultTenancyId`; NONE is non-submittable and shows `options` history as information only.
 - Browser evidence: Superadmin client Integrations tab was rendered in Chromium (dev server, faked API responses) at 360/390/768/1024/1280/1440 with no horizontal overflow. Tenants workspace, payments dialog and the reference panel were NOT visually checked.

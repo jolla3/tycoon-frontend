@@ -1,17 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Pagination, Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  Stack, TextField, Select, MenuItem, Alert, Chip,
+  Stack, TextField, Select, MenuItem, Alert, Chip, useMediaQuery, useTheme,
 } from '@mui/material';
 import { Receipt, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataTable, type DataTableColumn } from '@/components/data-display/data-table';
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { paymentsApi } from '@/lib/api/payments';
-import { buildManualPaymentInput, describeTenancy, resolveChoice, tenancyToSubmit } from '@/features/payments/manual-payment';
+import {
+  activeSelection, buildManualPaymentInput, describeTenancy, dialogReducer, ELIGIBLE_PAGE_SIZE, initialDialogState, resolveChoice, tenancyToSubmit,
+} from '@/features/payments/manual-payment';
+import { TenancyChooser } from '@/features/payments/tenancy-chooser';
 import { HouseSearchSelect } from '@/features/payments/house-search-select';
 import type { House as HouseRow } from '@/types/api';
 import { formatCents } from '@/lib/formatting/currency';
@@ -152,6 +155,8 @@ function RecordPaymentDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const connectivity = useConnectivity();
   const canReach = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
   const [house, setHouse] = useState<HouseRow | null>(null);
@@ -159,19 +164,25 @@ function RecordPaymentDialog({
   const [amountKes, setAmountKes] = useState('');
   const [reference, setReference] = useState('');
   const [period, setPeriod] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Nairobi' }).slice(0, 7));
-  const [selectedTenancyId, setSelectedTenancyId] = useState('');
-  const [optPage, setOptPage] = useState(1);
-  const [optSearch, setOptSearch] = useState('');
   const periodValid = /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
+  const [dlg, dispatch] = useReducer(dialogReducer, period, (p) => initialDialogState(p));
+  const [searchInput, setSearchInput] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => dispatch({ type: 'search', search: searchInput.trim() }), 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const optionsQuery = useQuery({
-    queryKey: ['payments', 'manual-options', houseId, period, optPage, optSearch],
-    queryFn: () => paymentsApi.manualOptions({ houseId, period, page: optPage, limit: 10, search: optSearch.trim() || undefined }),
+    queryKey: ['payments', 'manual-options', houseId, period, dlg.page, dlg.search],
+    queryFn: () => paymentsApi.manualOptions({ houseId, period, eligiblePage: dlg.page, eligibleLimit: ELIGIBLE_PAGE_SIZE, eligibleSearch: dlg.search || undefined, limit: 10 }),
     placeholderData: (prev) => prev,
     enabled: open && Boolean(houseId) && periodValid,
     staleTime: 0,
   });
-  const choice = optionsQuery.data ? resolveChoice(optionsQuery.data) : resolveChoice(undefined);
-  const tenancyId = tenancyToSubmit(choice, selectedTenancyId);
+  const choice = resolveChoice(optionsQuery.data, { houseId, period });
+  const searchPending = searchInput.trim() !== dlg.search;
+  const fresh = !optionsQuery.isFetching && !optionsQuery.isPlaceholderData && !searchPending && !optionsQuery.isError;
+  const selectedOption = activeSelection(dlg);
+  const tenancyId = tenancyToSubmit(choice, selectedOption, fresh);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -195,19 +206,19 @@ function RecordPaymentDialog({
   });
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs" fullScreen={fullScreen}>
       <DialogTitle>Record payment</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           {!canReach && <Alert severity="warning">Recording a payment requires connectivity.</Alert>}
           {formError && <Alert severity="error">{formError}</Alert>}
           {success && <Alert severity="success">{success}</Alert>}
-          <HouseSearchSelect value={house} onChange={(h) => { setHouse(h); setSelectedTenancyId(''); setOptPage(1); setOptSearch(''); }} />
+          <HouseSearchSelect value={house} onChange={(h) => { setHouse(h); dispatch({ type: 'house', houseId: h?._id ?? '' }); setSearchInput(''); }} />
           <TextField
             label="Rent month"
             type="month"
             value={period}
-            onChange={(e) => { setPeriod(e.target.value); setSelectedTenancyId(''); setOptPage(1); setOptSearch(''); }}
+            onChange={(e) => { setPeriod(e.target.value); dispatch({ type: 'period', period: e.target.value }); setSearchInput(''); }}
             InputLabelProps={{ shrink: true }}
             error={!periodValid}
             helperText="The month this payment is for. It decides which tenancy is charged."
@@ -220,26 +231,26 @@ function RecordPaymentDialog({
             ) : choice.kind === 'unique' ? (
               <Alert severity="info">Recorded against: {describeTenancy(choice.option, (d) => dateFormat(d, 'DD MMM YYYY'))}</Alert>
             ) : choice.kind === 'choose' ? (
-              <Select displayEmpty value={selectedTenancyId} onChange={(e) => setSelectedTenancyId(e.target.value)} fullWidth>
-                <MenuItem value="">Which tenancy is this payment for?</MenuItem>
-                {choice.options.map((o) => (
-                  <MenuItem key={o.tenancyId} value={o.tenancyId}>{describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}</MenuItem>
-                ))}
-              </Select>
+              <TenancyChooser
+                eligibleTotal={choice.eligibleTotal}
+                selection={choice.selection}
+                selected={selectedOption}
+                search={searchInput}
+                loading={!fresh}
+                period={period}
+                fmt={(d) => dateFormat(d, 'DD MMM YYYY')}
+                onSearch={setSearchInput}
+                onPage={(n) => dispatch({ type: 'page', page: n })}
+                onSelect={(o) => dispatch({ type: 'select', option: o })}
+                onClear={() => dispatch({ type: 'clear' })}
+              />
             ) : (
-              <Alert severity="warning">
+              <Alert severity="warning" data-testid="no-eligible-tenancy">
                 No single tenancy fully covers {period} for this house, so the payment cannot be attributed to a tenant. Partial-month billing is not supported yet.
-                {choice.options.map((o) => (
+                <Typography variant="caption" component="div" sx={{ mt: 1 }}>Tenancy history (for information only, not selectable):</Typography>
+                {choice.history.map((o) => (
                   <div key={o.tenancyId}>{describeTenancy(o, (d) => dateFormat(d, 'DD MMM YYYY'))}{o.reason ? ` — ${o.reason}` : ''}</div>
                 ))}
-                <Stack spacing={1} sx={{ mt: 1 }}>
-                  <TextField size="small" label="Search tenancies by tenant name" value={optSearch} onChange={(e) => { setOptSearch(e.target.value); setOptPage(1); }} />
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Button size="small" disabled={optPage <= 1} onClick={() => setOptPage((n) => Math.max(1, n - 1))}>Newer</Button>
-                    <Typography variant="caption">Page {optPage}{optionsQuery.data?.total != null ? ` · ${optionsQuery.data.total} tenancies` : ''}</Typography>
-                    <Button size="small" disabled={!optionsQuery.data?.hasMore} onClick={() => setOptPage((n) => n + 1)}>Older</Button>
-                  </Stack>
-                </Stack>
               </Alert>
             )
           ) : null}
