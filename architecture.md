@@ -599,6 +599,8 @@ The frontend consumes the existing Tycoon banking API. It does not call Co-op OA
 
 ## Manual-payment tenancy selection
 
+> **Superseded for ordinary payments (22 Nov 2026).** Record payment is now tenant-first: estate, then tenant, then one of that tenant's tenancies (`GET /payments/tenant-context`); `POST /payments` requires `tenantId`, `tenancyId` and `houseId`, and the backend validates them against the payment date. The resolver/chooser notes below describe the legacy `manual-options` endpoint only.
+
 - **Decision vs. display.** The backend resolver decides NONE/UNIQUE/AMBIGUOUS with `limit(2)` on the exact eligibility predicate (`eligibleTenancyFilter`, same boundaries as `tenancyPeriodEligibility`). Two rows are enough to know "zero, one, or more than one"; it is a decision bound, not a candidate list, so it never needs to read the whole set. `eligibleTotal` is an exact count.
 - **Complete eligible-set selection.** When AMBIGUOUS, the operator chooses from `eligibleSelection`: the same predicate plus client/estate/house constraints applied in MongoDB, tenant-name search done by a `$lookup` guarded by `clientId` (regex-escaped, case-insensitive), sorted and paginated in the database. Nothing is truncated in JavaScript, so tenancy 21, 200 or 2,000 is reachable by paging or searching.
 - **Why history is not selectable.** Tenancies that do not fully cover the period (start after the period start, end before the period ends, bad status) are ineligible; accepting them would attribute rent to a tenant who did not occupy the house for the whole month. They are returned separately as `options` only to explain a `NONE` result.
