@@ -17,6 +17,7 @@ import { TenantMpesaLinkPanel } from '@/features/mpesa/tenant-link-panel';
 import { TenantReferencePanel } from '@/features/mpesa/tenant-reference-panel';
 import { TenantDepositPanel } from '@/features/deposits/deposit-panel';
 import { KnownArrearsCard, MetricCard } from '@/features/finance/metric-card';
+import { tenantAccountMetrics } from '@/features/finance/tenant-account';
 import { PaymentStatusChip } from '@/components/data-display/status-chip';
 
 export default function TenantWorkspacePage() {
@@ -75,13 +76,10 @@ export default function TenantWorkspacePage() {
       />
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
         <Card sx={{ p: 1.5, minWidth: 140 }}><Typography variant="caption" color="text.secondary">Status</Typography><div><Chip size="small" label={tenant.status} color={tenant.status === 'active' ? 'success' : 'default'} /></div></Card>
-        <MetricCard label="Total received" value={formatMaybeCents(a?.receivedCents)} />
-        <MetricCard label="Total billed" value={formatMaybeCents(a?.billedCents)} />
-        <MetricCard label="Applied to rent" value={formatMaybeCents(a?.appliedToRentCents)} />
-        <MetricCard label="Available credit" value={formatMaybeCents(a?.creditCents)} />
-        <MetricCard label="Outstanding rent" value={formatMaybeCents(a?.outstandingCents)} />
-        <MetricCard label="Net position" value={a ? (a.netCents >= 0 ? `${formatCents(a.netCents)} credit` : `${formatCents(-a.netCents)} owed`) : 'Not available'} />
-        <KnownArrearsCard label="Known arrears" knownArrearsCents={f?.outstandingCents} verifiedFullObligation={f?.verifiedFullObligation} />
+        {tenantAccountMetrics(a).map((metric) => (
+          <MetricCard key={metric.key} label={metric.label} value={metric.value} />
+        ))}
+        <KnownArrearsCard label="Known arrears" knownArrearsCents={f?.knownArrearsCents} verifiedFullObligation={f?.verifiedFullObligation} />
         <MetricCard label="Overdue open charges" value={formatMaybeCents(f?.overdueCents)} />
       </Stack>
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable">

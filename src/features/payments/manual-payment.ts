@@ -2,6 +2,25 @@
 // Ownership (House → Tenancy → Tenant) is resolved by the backend from paymentDate for the ordinary flow.
 import type { EligibleSelection, ManualPaymentInput, ManualPaymentOptions, TenancyOption, TenderMethod } from '@/lib/api/payments';
 
+
+/** Parent selection changes clear dependent tenant/tenancy identity. */
+export interface RecordPaymentSelection { estateId: string; tenantId: string; tenancyId: string; }
+export type RecordPaymentSelectionAction =
+  | { type: 'estate'; estateId: string }
+  | { type: 'tenant'; tenantId: string }
+  | { type: 'tenancy'; tenancyId: string };
+export function initialRecordPaymentSelection(estateId: string | null = null): RecordPaymentSelection {
+  return { estateId: estateId ?? '', tenantId: '', tenancyId: '' };
+}
+export function recordPaymentSelectionReducer(state: RecordPaymentSelection, action: RecordPaymentSelectionAction): RecordPaymentSelection {
+  switch (action.type) {
+    case 'estate': return action.estateId === state.estateId ? state : { estateId: action.estateId, tenantId: '', tenancyId: '' };
+    case 'tenant': return action.tenantId === state.tenantId ? state : { ...state, tenantId: action.tenantId, tenancyId: '' };
+    case 'tenancy': return { ...state, tenancyId: action.tenancyId };
+  }
+}
+export function tenantListQueryForEstate(estateId: string): { estateId: string } { return { estateId }; }
+
 export const ELIGIBLE_PAGE_SIZE = 10;
 export const SEARCH_MAX = 80;
 

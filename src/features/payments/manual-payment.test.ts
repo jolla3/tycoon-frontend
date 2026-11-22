@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeSelection, buildManualPaymentInput, describeTenancy, dialogReducer, initialDialogState, pageCount, resolveChoice, tenancyToSubmit,
+  initialRecordPaymentSelection, recordPaymentSelectionReducer, tenantListQueryForEstate,
   type DialogAction, type DialogState,
 } from './manual-payment';
 import type { ManualPaymentOptions, TenancyOption } from '@/lib/api/payments';
@@ -188,5 +189,34 @@ describe('describeTenancy', () => {
     expect(text).toContain('Alice');
     expect(text).toContain('present');
     expect(text).not.toContain('64b7f0a1');
+  });
+});
+
+
+describe('tenant-first manual payment ownership selection', () => {
+  it('scopes tenant queries to the current estate', () => {
+    expect(tenantListQueryForEstate('estate-a')).toEqual({ estateId: 'estate-a' });
+  });
+  it('clears the tenant and tenancy when the estate changes', () => {
+    let state = initialRecordPaymentSelection('estate-a');
+    state = recordPaymentSelectionReducer(state, { type: 'tenant', tenantId: 'tenant-a' });
+    state = recordPaymentSelectionReducer(state, { type: 'tenancy', tenancyId: 'tenancy-a' });
+    expect(recordPaymentSelectionReducer(state, { type: 'estate', estateId: 'estate-b' }))
+      .toEqual({ estateId: 'estate-b', tenantId: '', tenancyId: '' });
+  });
+  it('clears tenancy when tenant changes', () => {
+    let state = initialRecordPaymentSelection('estate-a');
+    state = recordPaymentSelectionReducer(state, { type: 'tenant', tenantId: 'tenant-a' });
+    state = recordPaymentSelectionReducer(state, { type: 'tenancy', tenancyId: 'tenancy-a' });
+    expect(recordPaymentSelectionReducer(state, { type: 'tenant', tenantId: 'tenant-b' }))
+      .toEqual({ estateId: 'estate-a', tenantId: 'tenant-b', tenancyId: '' });
+  });
+  it('submits exact historical tenant, tenancy, house and date', () => {
+    const input = buildManualPaymentInput({
+      tenantId: 'former-tenant', tenancyId: 'closed-tenancy-17', houseId: 'house-17',
+      amountKes: '800', paymentDate: '2026-03-10', tenderMethod: 'CASH',
+      reference: '', idempotencyKey: 'historical-1',
+    });
+    expect(input).toMatchObject({ tenantId: 'former-tenant', tenancyId: 'closed-tenancy-17', houseId: 'house-17', paymentDate: '2026-03-10' });
   });
 });

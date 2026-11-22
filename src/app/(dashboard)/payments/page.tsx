@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Pagination, Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -12,7 +12,8 @@ import { DataTable, type DataTableColumn } from '@/components/data-display/data-
 import { FreshnessBadge } from '@/components/data-display/freshness-badge';
 import { paymentsApi, type TenderMethod } from '@/lib/api/payments';
 import {
-  buildManualPaymentInput, formatTenantBalance, nairobiToday, newManualPaymentIdempotencyKey, TENDER_METHODS,
+  buildManualPaymentInput, formatTenantBalance, initialRecordPaymentSelection, nairobiToday,
+  newManualPaymentIdempotencyKey, recordPaymentSelectionReducer, tenantListQueryForEstate, TENDER_METHODS,
 } from '@/features/payments/manual-payment';
 import { tenantsApi } from '@/lib/api/tenants';
 import { formatCents } from '@/lib/formatting/currency';
@@ -175,9 +176,8 @@ function RecordPaymentDialog({
   const connectivity = useConnectivity();
   const canReach = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
   const { estates } = useVisibleEstates();
-  const [estateId, setEstateId] = useState<string>(initialEstateId ?? '');
-  const [tenantId, setTenantId] = useState('');
-  const [tenancyId, setTenancyId] = useState('');
+  const [selection, dispatchSelection] = useReducer(recordPaymentSelectionReducer, initialEstateId, initialRecordPaymentSelection);
+  const { estateId, tenantId, tenancyId } = selection;
   const [amountKes, setAmountKes] = useState('');
   const [reference, setReference] = useState('');
   const [paymentDate, setPaymentDate] = useState(() => nairobiToday());
@@ -191,7 +191,7 @@ function RecordPaymentDialog({
 
   // Single-estate users: the estate is unambiguous, so preselect it.
   useEffect(() => {
-    if (!estateId && estates && estates.length === 1) setEstateId(estates[0]!._id);
+    if (!estateId && estates && estates.length === 1) dispatchSelection({ type: 'estate', estateId: estates[0]!._id });
   }, [estates, estateId]);
 
   const resetAttempt = () => {
@@ -202,7 +202,7 @@ function RecordPaymentDialog({
   // Tenants of the selected estate only (server scopes by estate and by the user's access).
   const tenantsQuery = useQuery({
     queryKey: ['payments', 'record', 'tenants', estateId],
-    queryFn: () => tenantsApi.list({ estateId }),
+    queryFn: () => tenantsApi.list(tenantListQueryForEstate(estateId)),
     enabled: open && Boolean(estateId),
     staleTime: 30_000,
   });
@@ -220,7 +220,7 @@ function RecordPaymentDialog({
   // The chosen tenancy must cover the CURRENT payment date; otherwise force a re-pick.
   const tenancyValid = Boolean(chosen && chosen.coversPaymentDate === true);
   useEffect(() => {
-    if (ctx && tenancyId && !tenancyValid) setTenancyId('');
+    if (ctx && tenancyId && !tenancyValid) dispatchSelection({ type: 'tenancy', tenancyId: '' });
   }, [ctx, tenancyId, tenancyValid]);
   const balanceLabel = formatTenantBalance(ctx?.account?.netCents ?? null);
 
@@ -288,9 +288,7 @@ function RecordPaymentDialog({
             select
             value={estateId}
             onChange={(e) => {
-              setEstateId(e.target.value);
-              setTenantId('');
-              setTenancyId('');
+              dispatchSelection({ type: 'estate', estateId: e.target.value });
               resetAttempt();
             }}
             required
@@ -307,8 +305,7 @@ function RecordPaymentDialog({
             isOptionEqualToValue={(a, b) => a._id === b._id}
             noOptionsText="No tenants in this estate"
             onChange={(_, t) => {
-              setTenantId(t?._id ?? '');
-              setTenancyId('');
+              dispatchSelection({ type: 'tenant', tenantId: t?._id ?? '' });
               resetAttempt();
             }}
             renderInput={(params) => (
@@ -327,7 +324,7 @@ function RecordPaymentDialog({
                   label="House / tenancy"
                   select
                   value={tenancyId}
-                  onChange={(e) => { setTenancyId(e.target.value); resetAttempt(); }}
+                  onChange={(e) => { dispatchSelection({ type: 'tenancy', tenancyId: e.target.value }); resetAttempt(); }}
                   required
                   SelectProps={{ displayEmpty: true }}
                   helperText="Only tenancies that covered the payment date can be chosen"

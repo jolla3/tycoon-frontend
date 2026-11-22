@@ -30,14 +30,15 @@ export interface TenantMonthlyRow {
 }
 
 /**
- * `outstandingCents` mirrors `knownArrearsCents` and is null when the ledger
- * cannot provide a figure. It is a known-arrears lower bound unless
- * `verifiedFullObligation` is true. Render via describeKnownArrears().
+ * Charge-based account totals are separate from ledger-known arrears.
+ * outstandingCents is the estate-scoped open RentCharge balance.
+ * knownArrearsCents (from KnownArrears) is a nullable ledger lower bound.
+ * Never substitute one figure for the other.
  */
 export interface TenantFinancials extends KnownArrears {
   billedCents: number;
   paidCents: number;
-  outstandingCents: number | null;
+  outstandingCents: number;
   /** Open charges past their due date. Charge-based, independent of the ledger figure. */
   overdueCents: number;
   oldestUnpaidPeriod: string | null;
