@@ -596,3 +596,34 @@ This section defines the frontend target against the backend implementation base
 
 ### Required frontend acceptance
 Test CK/SK-only validation and request bodies; failed-create response state; failed-reauthorization state; explicit secret discard after failure; parent active/failed/reauth-required/disconnected/missing cases; undefined capability denial; statement-vs-poll labels and gates; internal account-name copy; selected-client scoping; and client-summary cache invalidation. The implementation baseline has no dedicated banking panel/API suite proving these cases yet.
+
+
+---
+
+## Current merged-source reconciliation — 21 November 2026
+
+**Frontend `main`:** `a27f20dd3244cdc7370cffa16b70c6cd32a45576`  
+**Backend `main`:** `0dbf7ef75ed6c1a39e24775aec9a86e08f7d0617`
+
+This amendment supersedes historical implementation-status rows that refer to pre-merge branches or older source snapshots. It does not relax the existing provider, financial or production-readiness gates.
+
+### Verified current gaps and required frontend behavior
+
+- **Co-op onboarding:** the current form sends legacy `clientId`, `clientSecret`, `username`, `password` and optional `scope`; backend strict validation accepts `consumerKey` and `consumerSecret`. The provider factory/auth path is also internally inconsistent, so a form-only rename is insufficient. Align the form and API DTO to CK/SK only, with no customer password, PIN, OTP or free-form scope. Provider readiness remains disabled until backend auth/resource evidence is satisfied.
+- **Deposits:** the deposit panel currently describes settlement as a refund and move-out, but the backend settlement service only stamps settlement state. Remove the refund/move-out promise. Deposit operations must identify the exact Tenancy; where one Tenant has multiple active Tenancies, show an explicit tenancy choice rather than choosing the first.
+- **Deposit conflicts:** if the backend rejects a requirement change after a payment, render the conflict and preserve the prior value. Never display a successful save when the server did not change the requirement.
+- **Manual payments:** the backend resolver evaluates the eligible set, but the ambiguous picker consumes only the capped first 20 options. Use the existing paged/search candidate response in the AMBIGUOUS state as well as the NONE state. The selected exact `tenancyId` must be visible before confirmation.
+- **Partial-month billing:** current full-month-only behavior and its warning remain. Do not remove the warning or invent proration until the G3 PRD's owner-approved policy exists.
+- **HouseTypes:** list-level editing exists; the workspace has no edit affordance. Add workspace editing using the versioned plan contract, display the effective period and reason, and clarify that future versions affect existing Houses with `billingSource === 'HOUSE_TYPE'`, not only newly created Houses.
+- **Transactions versus Reports:** Transactions already includes M-PESA receipt history. Reports lacks M-PESA aggregates. Do not describe the history list as an aggregate report or count the receipt and its resulting G3 Payment twice.
+- **Banking report visibility:** do not show Banking-only KPIs or tabs to a client without the BANKING entitlement.
+- **CORS request contract:** authenticated requests keep cookie credentials and CSRF. The client may send `Idempotency-Key`; the backend must allow it in CORS preflight. Do not change the authentication model to work around the missing header.
+- **Responsive filters:** platform M-PESA filters have a narrow-width overflow risk from fixed minimum widths. Treat this as a browser-verified layout task; source inspection alone is not proof of overflow or its fix.
+
+### Decisions that remain blocked
+
+Do not invent deposit deduction/refund/move-out atomicity, deposit payment-before-requirement or overpayment semantics, paid requirement adjustments, HouseType deposit defaults, metered utility billing or a partial-month formula. Those rules are owned by the backend G3 PRD. Until approved, frontend copy and controls must not promise unsupported behavior.
+
+### Cross-repository acceptance
+
+Test request payloads and backend validators together; exercise one Tenant with multiple active Tenancies and cross-Estate isolation; prove ambiguous manual options beyond 20 are selectable; verify cookie + CSRF + idempotency preflight; test HouseType future-version messaging; verify entitlement-gated reports; and run narrow-mobile/tablet browser checks. A frontend build alone is not browser or provider acceptance.

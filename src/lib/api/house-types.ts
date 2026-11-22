@@ -38,6 +38,16 @@ export interface CreateHouseTypeInput {
   isActive?: boolean;
 }
 
+/**
+ * Plan fields (rent, due day, billing lines) create a NEW plan version starting
+ * at `effectiveFromPeriod` (YYYY-MM); history is never rewritten. Send them only
+ * when the plan actually changed. `effectiveFromPeriod` is invalid without them.
+ */
+export interface UpdateHouseTypeInput extends Partial<Omit<CreateHouseTypeInput, 'estateId'>> {
+  effectiveFromPeriod?: string;
+  changeReason?: string;
+}
+
 export interface HouseTypeWorkspaceTenant {
   _id: string;
   name: string;
@@ -99,7 +109,7 @@ export const houseTypesApi = {
       query as Record<string, QueryValue> | undefined
     ),
   create: (input: CreateHouseTypeInput) => apiClient.post<HouseType>('/house-types', input),
-  update: (id: string, input: Partial<Omit<CreateHouseTypeInput, 'estateId'>>) =>
+  update: (id: string, input: UpdateHouseTypeInput) =>
     apiClient.patch<HouseType>(`/house-types/${id}`, input),
   deactivate: (id: string) => apiClient.post<HouseType>(`/house-types/${id}/deactivate`),
 };

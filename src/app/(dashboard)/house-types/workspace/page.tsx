@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Stack, Typography, Button, Skeleton, Alert, Table, TableHead, TableRow, TableCell, TableBody, Chip, Box,
 } from '@mui/material';
@@ -15,10 +15,17 @@ import { MetricCard } from '@/features/finance/metric-card';
 import type { ChargeSlice } from '@/types/financial';
 import { ApiError } from '@/lib/api/client';
 import { openWorkspace, readWorkspaceId } from '@/lib/navigation/workspace';
+import { HouseTypeDialog } from '@/features/house-types/house-type-dialog';
+import { useSession } from '@/features/auth/session-context';
+import { permissions } from '@/lib/permissions/permissions';
 
 export default function HouseTypeWorkspacePage() {
   const router = useRouter();
   const [typeId, setTypeId] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const qc = useQueryClient();
+  const { user } = useSession();
+  const canManage = user ? permissions.canManageHouses(user.role) : false;
 
   useEffect(() => {
     const id = readWorkspaceId('houseType');
@@ -62,11 +69,28 @@ export default function HouseTypeWorkspacePage() {
         title={ht.name}
         description={[ht.description, `Period ${data.period}`, ht.isActive ? 'Active' : 'Inactive'].filter(Boolean).join(' · ')}
         actions={
-          <Button component={Link} href="/house-types" startIcon={<ArrowLeft size={16} />} variant="outlined" size="small">
-            All house types
-          </Button>
+          <Stack direction="row" spacing={1}>
+            {canManage ? <Button variant="contained" size="small" onClick={() => setEditOpen(true)}>Edit billing plan</Button> : null}
+            <Button component={Link} href="/house-types" startIcon={<ArrowLeft size={16} />} variant="outlined" size="small">
+              All house types
+            </Button>
+          </Stack>
         }
       />
+      {editOpen ? (
+        <HouseTypeDialog
+          open
+          initial={ht}
+          estates={[{ _id: ht.estateId, name: 'This estate' }]}
+          defaultEstateId={ht.estateId}
+          onClose={() => setEditOpen(false)}
+          onSaved={() => {
+            setEditOpen(false);
+            qc.invalidateQueries({ queryKey: ['house-type-workspace'] });
+            qc.invalidateQueries({ queryKey: ['house-types'] });
+          }}
+        />
+      ) : null}
 
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
         <Kpi label="Houses" value={String(m.houseCount)} />

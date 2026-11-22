@@ -603,3 +603,37 @@ The frontend consumes the existing Tycoon banking API. It does not call Co-op OA
 - **Complete eligible-set selection.** When AMBIGUOUS, the operator chooses from `eligibleSelection`: the same predicate plus client/estate/house constraints applied in MongoDB, tenant-name search done by a `$lookup` guarded by `clientId` (regex-escaped, case-insensitive), sorted and paginated in the database. Nothing is truncated in JavaScript, so tenancy 21, 200 or 2,000 is reachable by paging or searching.
 - **Why history is not selectable.** Tenancies that do not fully cover the period (start after the period start, end before the period ends, bad status) are ineligible; accepting them would attribute rent to a tenant who did not occupy the house for the whole month. They are returned separately as `options` only to explain a `NONE` result.
 - **Frontend.** The dialog holds a selection keyed by exact tenancy id and bound to house+period; it clears on house/period change, survives paging and search changes, blocks submit while results are loading/stale, and never auto-picks on ambiguity. There is no second resolver in the browser; the backend revalidates the submitted `tenancyId` at payment creation.
+
+## Manual-payment tenancy selection
+
+- **Decision vs. display.** The backend resolver decides NONE/UNIQUE/AMBIGUOUS with `limit(2)` on the exact eligibility predicate (`eligibleTenancyFilter`, same boundaries as `tenancyPeriodEligibility`). Two rows are enough to know "zero, one, or more than one"; it is a decision bound, not a candidate list, so it never needs to read the whole set. `eligibleTotal` is an exact count.
+- **Complete eligible-set selection.** When AMBIGUOUS, the operator chooses from `eligibleSelection`: the same predicate plus client/estate/house constraints applied in MongoDB, tenant-name search done by a `$lookup` guarded by `clientId` (regex-escaped, case-insensitive), sorted and paginated in the database. Nothing is truncated in JavaScript, so tenancy 21, 200 or 2,000 is reachable by paging or searching.
+- **Why history is not selectable.** Tenancies that do not fully cover the period (start after the period start, end before the period ends, bad status) are ineligible; accepting them would attribute rent to a tenant who did not occupy the house for the whole month. They are returned separately as `options` only to explain a `NONE` result.
+- **Frontend.** The dialog holds a selection keyed by exact tenancy id and bound to house+period; it clears on house/period change, survives paging and search changes, blocks submit while results are loading/stale, and never auto-picks on ambiguity. There is no second resolver in the browser; the backend revalidates the submitted `tenancyId` at payment creation.
+
+---
+
+## Current merged-source reconciliation — 21 November 2026
+
+**Frontend `main`:** `a27f20dd3244cdc7370cffa16b70c6cd32a45576`  
+**Backend `main`:** `0dbf7ef75ed6c1a39e24775aec9a86e08f7d0617`
+
+### Cross-layer request and identity contracts
+
+1. Authenticated API calls continue through the shared client with `credentials: 'include'` and CSRF. `Idempotency-Key` is an allowed domain header; backend CORS must allow it. Do not weaken session or CSRF controls.
+2. Co-op onboarding must send `credentialMaterial: { consumerKey, consumerSecret }` only. The current frontend form still sends legacy fields, while backend validation and provider auth are also inconsistent. Fix all layers to the G4 contract; keep UI capability disabled when backend provider/resource readiness is false.
+3. Deposit operations must resolve to an exact `tenancyId`, not an arbitrary active Tenancy discovered from `tenantId`. Validate Tenant, Tenancy, Client and Estate together. The existing tenant-level API may be used only for a unique match until the exact-tenancy API is integrated.
+4. Deposit settlement is not a refund or move-out. Do not present those effects unless the API response and backend transaction actually perform them under the approved G3 policy. A requirement update that returns an unchanged paid Deposit is a conflict, not success.
+5. Manual-payment candidate search/pagination must run in the AMBIGUOUS state. Keep resolver eligibility and option browsing on the same server predicate; do not treat the first 20 visible rows as the full set.
+
+### Workspace and reporting contracts
+
+- HouseType workspace needs the existing versioned-plan edit workflow; show effective period, reason and affected Houses that use `HOUSE_TYPE` billing. Historical charges remain snapshots.
+- Partial-month billing remains unsupported pending an owner-approved G3 formula.
+- Transactions is a receipt/transaction history surface. Reports is an aggregate surface; distinguish observed/verified/unallocated M-PESA receipts from G3 Payments and never double count a receipt plus its posted Payment.
+- Hide Banking-only report metrics and tabs when BANKING is not entitled.
+- Platform M-PESA filter layout needs real browser checks at narrow widths before claiming a responsive defect or fix.
+
+### Verification guardrails
+
+Use the frontend endpoint/screen matrix and backend G3/G4 requirements as a paired contract, but keep each repository's documents in that repository. Do not infer missing API routes or fields from UI needs. Add the backend contract first, then consume the committed request/response shape. Test network OPTIONS and mutation behavior, multi-tenancy, pagination beyond 20, entitlement visibility and real viewport sizes. Do not claim provider sandbox or live readiness from mocks or compilation.

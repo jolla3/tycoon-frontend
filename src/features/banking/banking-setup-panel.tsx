@@ -181,7 +181,7 @@ function ConnectionCard({ connection, canManage, clientId }: { connection: BankC
   );
 }
 
-const EMPTY_CREDS: CoopCredentialMaterial = { clientId: '', clientSecret: '', username: '', password: '', scope: '' };
+const EMPTY_CREDS: CoopCredentialMaterial = { consumerKey: '', consumerSecret: '' };
 
 /** Shared credential form. Secrets live only in this component's state and are wiped on every exit path. */
 function CredentialDialog({
@@ -204,7 +204,7 @@ function CredentialDialog({
   const close = () => { wipe(); onClose(); };
 
   const mutation = useMutation({
-    mutationFn: () => submit({ ...creds, scope: creds.scope?.trim() || undefined }, displayName.trim() || undefined),
+    mutationFn: () => submit(creds, displayName.trim() || undefined),
     onSuccess: () => {
       wipe();
       qc.invalidateQueries({ queryKey: bankingKeys.connections() });
@@ -218,7 +218,7 @@ function CredentialDialog({
   });
 
   const set = (k: keyof CoopCredentialMaterial) => (e: React.ChangeEvent<HTMLInputElement>) => setCreds((c) => ({ ...c, [k]: e.target.value }));
-  const valid = creds.clientId && creds.clientSecret && creds.username && creds.password;
+  const valid = creds.consumerKey.trim() && creds.consumerSecret.trim();
 
   return (
     <Dialog open onClose={close} fullWidth maxWidth="xs">
@@ -227,13 +227,10 @@ function CredentialDialog({
         <Stack spacing={2} sx={{ mt: 1 }} component="form" autoComplete="off" onSubmit={(e) => e.preventDefault()}>
           {!canReach ? <Alert severity="info">You&apos;re offline. This action requires a server connection.</Alert> : null}
           {error ? <Alert severity="error">{error}</Alert> : null}
-          <Alert severity="info">Credentials are sent securely to the server and stored encrypted. They cannot be viewed again.</Alert>
+          <Alert severity="info">Enter the Consumer Key and Consumer Secret from your Co-op Connect application. They are sent securely, stored encrypted and cannot be viewed again.</Alert>
           {withDisplayName ? <TextField label="Display name (optional)" value={displayName} onChange={(e) => setDisplayName(e.target.value)} /> : null}
-          <TextField label="Client ID" value={creds.clientId} onChange={set('clientId')} required autoComplete="off" />
-          <TextField label="Client secret" type="password" value={creds.clientSecret} onChange={set('clientSecret')} required autoComplete="new-password" />
-          <TextField label="Username" value={creds.username} onChange={set('username')} required autoComplete="off" />
-          <TextField label="Password" type="password" value={creds.password} onChange={set('password')} required autoComplete="new-password" />
-          <TextField label="Scope (optional)" value={creds.scope ?? ''} onChange={set('scope')} autoComplete="off" />
+          <TextField label="Consumer Key" value={creds.consumerKey} onChange={set('consumerKey')} required autoComplete="off" />
+          <TextField label="Consumer Secret" type="password" value={creds.consumerSecret} onChange={set('consumerSecret')} required autoComplete="new-password" />
         </Stack>
       </DialogContent>
       <DialogActions>
