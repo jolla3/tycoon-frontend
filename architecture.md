@@ -97,7 +97,7 @@ Implementation branches: frontend and backend `docs/superadmin-onboarding-and-hi
 
 ### Review-only status
 
-Implementation has not been merged or deployed. New backend tests are committed but not run. Browser acceptance, replica-set integration tests and live provider tests remain required. The P0 manual-options latest-50 candidate mismatch remains open.
+Implementation has not been merged or deployed. New backend tests are committed but not run. Browser acceptance, replica-set integration tests and live provider tests remain required. The manual-options candidate cap is fixed in code (see Manual-payment tenancy selection below); DB-backed verification is still pending.
 
 ## Design review hardening — 2026-11-19
 
@@ -135,7 +135,7 @@ The New Tenant modal owns estate selection and renders explicit loading/error/em
 
 ### Verification boundaries
 
-The two P0 branches are merged into main. Reported unit test success is not a substitute for the 19 unexecuted database integration tests, browser acceptance or live-provider verification. The latest-50 manual-options/resolver mismatch remains open.
+The two P0 branches are merged into main. Reported unit test success is not a substitute for the 19 unexecuted database integration tests, browser acceptance or live-provider verification. The manual-options cap is fixed in code (unit and faked-API browser checks); DB-backed verification is still pending.
 
 > Read this file first for a compact project map.  
 > Audited: 2026-11-15  
@@ -596,6 +596,13 @@ The frontend consumes the existing Tycoon banking API. It does not call Co-op OA
 - Superadmin keeps explicit `clientId` query scoping and server authorization. After mutations, invalidate banking keys and `platformKeys.client(clientId)`.
 - Account name is an internal Tycoon label, not a Co-op verified account-holder name.
 
+
+## Manual-payment tenancy selection
+
+- **Decision vs. display.** The backend resolver decides NONE/UNIQUE/AMBIGUOUS with `limit(2)` on the exact eligibility predicate (`eligibleTenancyFilter`, same boundaries as `tenancyPeriodEligibility`). Two rows are enough to know "zero, one, or more than one"; it is a decision bound, not a candidate list, so it never needs to read the whole set. `eligibleTotal` is an exact count.
+- **Complete eligible-set selection.** When AMBIGUOUS, the operator chooses from `eligibleSelection`: the same predicate plus client/estate/house constraints applied in MongoDB, tenant-name search done by a `$lookup` guarded by `clientId` (regex-escaped, case-insensitive), sorted and paginated in the database. Nothing is truncated in JavaScript, so tenancy 21, 200 or 2,000 is reachable by paging or searching.
+- **Why history is not selectable.** Tenancies that do not fully cover the period (start after the period start, end before the period ends, bad status) are ineligible; accepting them would attribute rent to a tenant who did not occupy the house for the whole month. They are returned separately as `options` only to explain a `NONE` result.
+- **Frontend.** The dialog holds a selection keyed by exact tenancy id and bound to house+period; it clears on house/period change, survives paging and search changes, blocks submit while results are loading/stale, and never auto-picks on ambiguity. There is no second resolver in the browser; the backend revalidates the submitted `tenancyId` at payment creation.
 
 ---
 
