@@ -17,6 +17,7 @@ import { TenantMpesaLinkPanel } from '@/features/mpesa/tenant-link-panel';
 import { TenantReferencePanel } from '@/features/mpesa/tenant-reference-panel';
 import { TenantDepositPanel } from '@/features/deposits/deposit-panel';
 import { KnownArrearsCard, MetricCard } from '@/features/finance/metric-card';
+import { tenantAccountMetrics } from '@/features/finance/tenant-account';
 import { PaymentStatusChip } from '@/components/data-display/status-chip';
 
 export default function TenantWorkspacePage() {
@@ -54,6 +55,7 @@ export default function TenantWorkspacePage() {
   }
 
   const f = tenant.financials;
+  const a = tenant.account;
 
   return (
     <>
@@ -74,9 +76,10 @@ export default function TenantWorkspacePage() {
       />
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
         <Card sx={{ p: 1.5, minWidth: 140 }}><Typography variant="caption" color="text.secondary">Status</Typography><div><Chip size="small" label={tenant.status} color={tenant.status === 'active' ? 'success' : 'default'} /></div></Card>
-        <MetricCard label="Billed (open charges)" value={formatMaybeCents(f?.billedCents)} />
-        <MetricCard label="Paid (open charges)" value={formatMaybeCents(f?.paidCents)} />
-        <KnownArrearsCard label="Known arrears" knownArrearsCents={f?.outstandingCents} verifiedFullObligation={f?.verifiedFullObligation} />
+        {tenantAccountMetrics(a).map((metric) => (
+          <MetricCard key={metric.key} label={metric.label} value={metric.value} />
+        ))}
+        <KnownArrearsCard label="Known arrears" knownArrearsCents={f?.knownArrearsCents} verifiedFullObligation={f?.verifiedFullObligation} />
         <MetricCard label="Overdue open charges" value={formatMaybeCents(f?.overdueCents)} />
       </Stack>
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable">
@@ -137,18 +140,27 @@ export default function TenantWorkspacePage() {
       )}
       {tab === 3 && (
         <Card sx={{ p: 2 }}>
-          {(tenant.payments ?? []).length === 0 ? <Typography color="text.secondary">No payments.</Typography> : (
+          {(tenant.paymentHistory ?? []).length === 0 ? (
+            <Typography color="text.secondary">
+              No payments received.{a && a.creditCents > 0 ? ' This tenant still holds credit: see the ledger-based figures above.' : ''}
+            </Typography>
+          ) : (
             <Stack spacing={1} divider={<Divider />}>
-              {tenant.payments!.map((pay) => (
-                <Box key={pay._id}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography fontWeight={600} sx={pay.status === 'REVERSED' ? { textDecoration: 'line-through', color: 'text.secondary' } : undefined}>{formatCents(pay.amountCents)}</Typography>
-                    <PaymentStatusChip status={pay.status} />
+              {tenant.paymentHistory!.map((r) => (
+                <Box key={`${r.kind}:${r.id}`}>
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Typography fontWeight={600}>{formatCents(r.grossCents)} received</Typography>
+                    <PaymentStatusChip status={r.status as never} />
                   </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    {pay.paymentDate ? new Date(pay.paymentDate).toLocaleDateString() : '—'}
-                    {pay.paymentReference ? ` · ${pay.paymentReference}` : ''}
-                    {pay.status === 'REVERSED' ? ' · Reversed: not counted as collected' : ''}
+                  <Typography variant="caption" color="text.secondary" component="div">
+                    {r.paymentDateLocal ?? (r.paymentDate ? new Date(r.paymentDate).toLocaleDateString() : '—')}
+                    {r.reference ? ` · ${r.reference}` : ''}
+                    {r.houseNumber ? ` · House ${r.houseNumber}` : ''}
+                    {r.tenderMethod ? ` · ${r.tenderMethod}` : ''}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" component="div">
+                    Applied to rent {formatCents(r.appliedToRentCents)} · New credit {formatCents(r.newCreditCents)}
+                    {r.appliedFromCreditCents > 0 ? ` · Existing credit also applied ${formatCents(r.appliedFromCreditCents)} (not part of this receipt)` : ''}
                   </Typography>
                 </Box>
               ))}

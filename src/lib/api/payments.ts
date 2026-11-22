@@ -4,6 +4,9 @@ import type { Paginated, Payment } from '@/types/api';
 export type TenderMethod = 'CASH' | 'MPESA' | 'BANK_TRANSFER' | 'CHEQUE' | 'OTHER';
 
 export interface ManualPaymentInput {
+  /** Explicit ownership: the operator picks the tenant, then one of that tenant's tenancies/houses. */
+  tenantId: string;
+  tenancyId: string;
   houseId: string;
   amountCents: number;
   paymentDate: string;
@@ -11,10 +14,24 @@ export interface ManualPaymentInput {
   /** Client-generated once per intended submission; retries must reuse the same key. */
   idempotencyKey: string;
   paymentReference?: string;
-  /** Edge-case / legacy — ordinary UI does not send these. */
   period?: string;
-  tenantId?: string;
-  tenancyId?: string;
+}
+
+/** GET /payments/tenant-context — the chosen tenant's houses/tenancies and account figures. */
+export interface TenantPaymentContext {
+  tenant: { _id: string; name: string; phone?: string; status?: string };
+  paymentDate: string | null;
+  tenancies: Array<{
+    tenancyId: string;
+    houseId: string;
+    houseNumber: string | null;
+    status: 'ACTIVE' | 'CLOSED';
+    startAt: string;
+    endAt: string | null;
+    /** null when no paymentDate was supplied. */
+    coversPaymentDate: boolean | null;
+  }>;
+  account: { creditCents: number; outstandingCents: number; netCents: number };
 }
 
 /** One selectable tenancy. Kept for legacy manual-options consumers. */
@@ -131,5 +148,7 @@ export const paymentsApi = {
     apiClient.get<ManualPaymentOptions>('/payments/manual-options', query as Record<string, QueryValue>),
   manualContext: (query: { houseId: string; paymentDate?: string }) =>
     apiClient.get<ManualPaymentContext>('/payments/manual-context', query as Record<string, QueryValue>),
+  tenantContext: (query: { tenantId: string; paymentDate?: string }) =>
+    apiClient.get<TenantPaymentContext>('/payments/tenant-context', query as Record<string, QueryValue>),
   create: (input: ManualPaymentInput) => apiClient.post<ManualPaymentResult>('/payments', input),
 };
