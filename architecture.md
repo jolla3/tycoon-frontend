@@ -280,4 +280,360 @@ Use backend DTOs as the source of truth. The frontend may add presentation-only 
 | `RentCharge` | Ledger charge for a period/type | Amounts are integer cents; backend owns allocations/status |
 | `Payment` | Payment posted to the Tycoon ledger | Use for rent-ledger history |
 | `BankConnection` | Provider authorization/credential connection | Separate lifecycle from an individual bank account |
-| `BankAccount` | Account registered under a bank connection | C¢Îi∫€k∫wµÁ_∫Yh∫⁄n∂∆Øy€h˛iÌ˝¯•zœ‹¢jh≤*?¢Îi∫ﬂ€j»ijªlµ⁄.∂‹mFÈ‹jﬂÊûﬂﬂäW¨˝ &¶ã"£˙.∂õ≠˝∂¨Üñ´∂À]¢Îm∆€hæ'∞∂ü∫Yh∫⁄n∂äÓ±Ë^iŸı”OÊûﬂﬂäW¨˝ &¶ã"£˙.∂õ≠˝∂¨Üñ´∂À]¢Îm∆ﬂÌj)g◊M?ö{~)^≥˜(öö,äèË∫⁄n∑ˆ⁄≤ZÆ€-vã≠∑m¢¯û¬ñ´∂ ä
+| `BankAccount` | Account registered under a bank connection | Creation requires `connectionId` |
+| `BankTransaction` | Imported bank transaction | Reconciliation record; not an M-PESA receipt |
+| `MpesaSubmission` | Parsed tenant SMS evidence and review state | Evidence only; cannot independently create a payment |
+| `MpesaTransaction` | Canonical provider receipt from Daraja ingestion | No frontend list endpoint in the audited backend baseline |
+
+Money is transported as integer cents. Date/time values must follow the backend's documented timezone/ISO representation. Status values should be modeled from backend DTOs/enums, not made up in the UI.
+
+## 7. Feature integration map
+
+| Feature | Frontend route/screen | Backend API family |
+|---|---|---|
+| Authentication | `/login` and session context | `/auth/*` |
+| Profile | `/profile` | `/profile/*` |
+| Portfolio | `/estates`, `/houses`, `/house-types` | `/estates/*`, `/houses/*`, `/house-types/*` |
+| Tenants | `/tenants` and tenant workspace | `/tenants/*`, `/deposits/*`, future `/mpesa-collection/*` |
+| Billing | Estate Workspace Billing tab generates charges; House Workspace displays account | `/billing/*`, house billing-config routes |
+| Payments | `/payments` | `/payments/*` |
+| Bank integration | `/banking` | `/bank/connections/*`, `/bank/accounts/*` |
+| Bank reconciliation | `/transactions`, `/transactions/unmatched` | `/transactions/*` |
+| M-PESA public submission | New single-purpose public `/pay` page for pasted SMS evidence | `/public/mpesa/submissions` |
+| M-PESA operator controls/review | New link panel in tenant workspace + submission queue under Payments/Collections | `/mpesa-collection/*` |
+| Reporting | `/reports`, dashboard | `/reports/*` |
+| Communications | `/sms` | `/sms/*` |
+| Staff | `/staff` | `/users/*` |
+| Subscription | `/settings` | `/subscription/*` |
+| Platform | `/platform/*` | `/platform/*` |
+
+The detailed endpoint map, frontend wrapper, current screen, role notes, and gap status live in `docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md`.
+
+## 8. Known integration defects and blocked capabilities
+
+### Frontend defects to fix
+
+1. **Banking create flow:** current form calls `POST /bank/accounts` without first creating/selecting a bank connection and without the required `connectionId`. Add connection list/create/detail/reauthorize/disconnect wrappers and UI before account registration.
+2. **Billing-config deactivation:** `housesApi.deactivateBillingConfig(houseId, chargeType)` builds a URL using the charge type. Backend route expects `:configId`. Change the input and URL to use the configuration ID.
+3. **Estate filtering and cache keys:** backend clientContext validates estateId and enforces assigned estateIds for restricted STAFF. Houses already sends estateId; remove stale comment. Tenants, Transactions and HouseType list omit selected estate. Transactions filters after pagination. Unmatched assignment fetches 200 houses across scope and filters locally. Add server-side estateId query support and include every filter in query/cache keys.
+4. **HouseType creation/workspace:** service requires estateId but the route create schema omits it and strips the request; the frontend form/type already send it. Workspace DTO separates current tenancy, historical, unattributed and orphaned financials while page expects obsolete flat fields. Fix backend validation and redesign to actual DTO.
+5. **Deposit idempotency:** backend deposit pay/deduct require Idempotency-Key. Wrappers send none and apiClient has no typed header support; these actions currently fail validation. Add stable per-intent key support and reuse on retry.
+6. **Financial DTOs:** tenant outstanding can be null and house account distinguishes current-tenancy from house-wide history. Current pages display null as zero or flatten balances. Payment origin/status and BankAccount validation/entitlements are omitted.
+7. **Bank transaction response safety:** list/unmatched return raw docs containing processingClaimToken and rawPayload. Backend needs a safe DTO before browser use.
+8. **Billing-config deactivation:** wrapper supplies chargeType; route requires configId.
+9. **API export surface:** src/lib/api/index.ts omits existing house-type, billing, deposit and subscription modules.
+
+### Backend routes exist but frontend is missing
+
+- M-PESA tenant link inspect/issue/revoke.
+- M-PESA tenant SMS evidence submission.
+- M-PESA submission list and supported resolve actions.
+- Tenant M-PESA account/payment views, if these are needed beyond the existing tenant DTOs.
+
+### Backend route is missing; do not invent it
+
+- Canonical `MpesaTransaction` list/read API.
+- Merchant profile management API.
+- Manual Daraja Pull query API.
+- Forgot/reset password.
+- Backend notifications API.
+- Generic settings API.
+
+### Backend-only operations
+
+Daraja C2B validation/confirmation, Pull result callbacks, and bank provider webhooks are provider-to-server routes. The browser must not call them. The Pull reconciliation scheduler is a backend job; platform health reports job state but does not expose a manual query operation.
+
+## 9. Routing and role boundaries
+
+- `(public)`: landing, login, privacy, terms, and future `/pay`.
+- `(dashboard)`: authenticated client operations.
+- `(platform)`: SUPER_ADMIN-only console.
+- A Next.js route group in parentheses does not appear in the browser URL. A `page.tsx` beneath `src/app/(public)/pay` resolves to `/pay`.
+
+The existing role helper grants management UX to `CLIENT_OWNER` and `CLIENT_ADMIN`, and platform access to `SUPER_ADMIN`. Staff visibility/actions are constrained in the UI and again by the backend. Never weaken backend enforcement to make a page work.
+
+## 10. Implementation and verification rules
+
+Before feature work:
+
+1. Read `PRD.md`, this file, and the endpoint/screen matrix.
+2. Confirm the current backend branch/commit and endpoint contract.
+3. Identify whether the task is a frontend defect, an existing backend endpoint not yet surfaced, or a true backend API gap.
+4. Update all three planning documents when the contract, workflow, role rules, or scope changes.
+5. Only then implement.
+
+For each feature, test: API client contract, response DTO parsing, pending/error/success UI, authorization boundaries, stale/offline behavior, keyboard use, responsive layout, and backend integration.
+
+Do not claim tests passed unless the commands were executed against the current checked-out branch. Do not generate test-result files or persistent logs unless requested.
+
+## 11. Field-level contract corrections
+
+### Request schemas
+| Domain | Backend contract | Frontend correction |
+|---|---|---|
+| BankConnection create | provider, optional displayName, credentialMaterial object | Add separate connection API/form; never persist credentials |
+| BankAccount create | estateId, connectionId, provider, accountNumber, accountName, optional currency/allowEstateReassignment | Register account only after usable connection exists |
+| HouseType create | Service requires estateId, route create validation currently omits it | Fix backend schema and frontend estate selection/payload |
+| HouseType plan update | Service supports effectiveFromPeriod/changeReason; update schema currently strips them | Align validator and versioned-plan editor |
+| Tenant PATCH | name/phone/status/moveOutDate only | Remove houseId from update type; use dedicated move |
+| House PATCH | estateId is not accepted | Remove estateId from update type |
+| Deposit pay/deduct | Mandatory Idempotency-Key header | Add typed header support; stable key per intent and across retries |
+
+### Response models
+- Tenant detail: outstandingCents is nullable and includes knownArrearsCents, historicalCoverage, verifiedFullObligation, balanceSource, overdueCents and oldestUnpaidPeriod. Never render null as zero.
+- House account: preserve ledger, currentTenancyId, verification metadata, currentTenancyBalanceCents, currentTenancyBalanceVerified, historicalUnattributedCents and balanceSource. Label active-tenancy vs house-wide historical amounts separately.
+- HouseType workspace: rebuild around currentTenancy, historicalTenancyFinancials, unattributedLegacyFinancials, orphanedTenancyFinancials and currentOccupancyConflict. Do not read obsolete flat fields.
+- BankAccount: include connectionId, validationStatus, lastValidatedAt and entitlements. Connection status and account validation status are distinct.
+- BankTransaction: model all backend matchStatus/processingState values, but require safe backend DTO excluding processingClaimToken/rawPayload.
+- Payment: include origin, status and tenancyId. Backend list can include REVERSED.
+- HouseBillingConfig: include effectiveTo/frequency and deactivate by config _id.
+- Deposit GET returns tenant, deposit, activeTenancyId and balance; pay/deduct require Idempotency-Key.
+- Billing generation is already in Estate Workspace Billing tab; each estate result also includes eligibleTenancies/partialPeriodExcluded.
+
+## 12. M-PESA frontend architecture (new feature)
+
+The original planning baseline below predates the review-branch implementation. The current branch has the public tenant page, link panel, submission review queue and canonical receipt history UI; the merchant configuration UI is still only a DRAFT Till + single-estate form. Do not create a tenant portal.
+
+### Route and module boundaries
+- Public page: src/app/(public)/pay/page.tsx ‚Üí /pay. No session guard and no dashboard shell.
+- Operator link panel: feature component inside existing tenant workspace.
+- Operator evidence queue: new authenticated route under Payments/Collections, for example /payments/mpesa-submissions.
+- API modules: src/lib/api/mpesa-collection.ts for authenticated routes and src/lib/api/mpesa-public.ts for public submission.
+- Feature components: src/features/mpesa/public-submission, tenant-link and submissions.
+
+### Public page behavior
+1. Read token only from URL fragment #t= after client hydration.
+2. Keep token in in-memory component state only. Never put it in query cache, IndexedDB, localStorage, telemetry, logs, query parameters or error details.
+3. Display one SMS text area and one submit action. No login, balance, checkout, receipt history or account screens.
+4. Submit exact body { token, text }; backend owns the public guard and 4 KB body limit.
+5. 202 means evidence received for processing only. Use neutral invalid-link/unavailable states; never claim payment posted.
+6. Clear sensitive text after accepted submission; never persist it.
+
+### Authenticated link lifecycle
+- Inspect returns safe link metadata only; token is never returned.
+- Issue/rotate returns { link, token }; token is available once. Build /pay#t=... with configured public app origin matching backend FRONTEND_URL. Keep raw token transient and provide copy/share.
+- Revoke invalidates active link and clears local token/display state.
+- operational=false means merchant/Till prerequisites are not ready.
+- Backend may queue protected onboarding SMS when tenant phone, active merchant profile and FRONTEND_URL exist. Issue response has no delivery result: never say SMS sent/delivered and do not build a duplicate sender.
+
+### Evidence review
+- GET submissions defaults to reviewable states and supports state/limit filtering.
+- Resolve only supports REJECT and RETRY_MATCH with reason codes DUPLICATE, WRONG_TENANT, NOT_A_RENT_PAYMENT, UNREADABLE, OTHER_DOCUMENTED.
+- No approve/force-match. Submission evidence is not a Payment.
+- SUPER_ADMIN requests need explicit clientId; regular client operators inherit session scope.
+
+### Missing backend APIs
+The canonical MpesaTransaction list and basic DRAFT Till profile-create route now exist on the review branch. Full merchant lifecycle, multi-estate mapping, PayBill reference management, registration actions and manual Pull HTTP APIs remain unimplemented. Do not build UI against invented contracts.
+
+## 13. Financial presentation invariants
+- Unknown or unverified is never rendered as KSh 0.
+- House-wide historical outstanding is not automatically the current tenant liability.
+- Current account, closed-tenancy arrears, tenant credit and pending M-PESA evidence remain distinct.
+- BankTransaction, MpesaSmsSubmission, MpesaTransaction and Payment are not interchangeable.
+- Money remains integer cents through the API layer; KES formatting is presentation-only.
+
+
+## 14. Superadmin platform V2 architecture
+
+This section is authoritative for the frontend control-plane design and is based on backend branch feat/superadmin-subscription-entitlements at cc98900ba338f5b1e19bdcfe923e4dc45bc87745. Backend changes are implemented in source; behavioural verification is pending.
+
+### 14.1 Workspace boundary
+
+Keep one Next.js application and the existing (platform) route group. Do not create a second frontend, duplicate session provider or parallel authorization system.
+
+- (dashboard) remains the normal client property-operations workspace.
+- (platform) remains the SUPER_ADMIN-only platform control plane.
+- Platform-wide pages aggregate cross-client data.
+- Client detail/diagnostics pages operate on an explicitly selected client ID while preserving the real SUPER_ADMIN actor. This is not impersonation.
+- The dedicated platform diagnostics endpoint can inspect inactive clients; do not weaken clientContext or normal client-route authorization.
+
+Every /api/v1/platform route runs authenticate and authorize('SUPER_ADMIN'). Frontend guards/navigation are usability controls, not the security boundary.
+
+### 14.2 Target route structure
+
+    src/app/(platform)/platform/
+    ‚îú‚îÄ‚îÄ page.tsx                         # Overview
+    ‚îú‚îÄ‚îÄ clients/
+    ‚îÇ   ‚îú‚îÄ‚îÄ page.tsx                     # Client directory + provisioning
+    ‚îÇ   ‚îî‚îÄ‚îÄ [clientId]/
+    ‚îÇ       ‚îú‚îÄ‚îÄ page.tsx                 # Client workspace
+    ‚îÇ       ‚îî‚îÄ‚îÄ diagnostics/
+    ‚îÇ           ‚îî‚îÄ‚îÄ page.tsx             # Optional deep-link diagnostics route
+    ‚îú‚îÄ‚îÄ entitlements/page.tsx            # Product assignment inventory
+    ‚îú‚îÄ‚îÄ integrations/
+    ‚îÇ   ‚îú‚îÄ‚îÄ banking/page.tsx             # Read-only Banking monitor
+    ‚îÇ   ‚îî‚îÄ‚îÄ mpesa/page.tsx               # Read-only M-PESA monitor
+    ‚îú‚îÄ‚îÄ users/page.tsx
+    ‚îú‚îÄ‚îÄ subscriptions/page.tsx
+    ‚îú‚îÄ‚îÄ audit/page.tsx
+    ‚îî‚îÄ‚îÄ health/page.tsx
+
+Client workspace tabs: Overview, Products & Subscription, Integrations, Diagnostics and Activity. Diagnostics may also have a deep-link route, but should have one implementation.
+
+Target navigation: Overview, Clients, Entitlements, Integrations, Users, Subscriptions, Audit and System Health. Integrations may group Banking and M-PESA beneath one parent.
+
+### 14.3 Feature and API module boundaries
+
+Keep all HTTP traffic through src/lib/api/client.ts. Do not add page-level fetch calls or platform-specific copies of cookie/CSRF logic.
+
+Split the existing platform module by domain as implementation proceeds:
+
+    src/lib/api/platform/
+    ‚îú‚îÄ‚îÄ overview.ts
+    ‚îú‚îÄ‚îÄ clients.ts
+    ‚îú‚îÄ‚îÄ entitlements.ts
+    ‚îú‚îÄ‚îÄ diagnostics.ts
+    ‚îú‚îÄ‚îÄ integrations.ts
+    ‚îú‚îÄ‚îÄ users.ts
+    ‚îú‚îÄ‚îÄ subscriptions.ts
+    ‚îú‚îÄ‚îÄ audit.ts
+    ‚îî‚îÄ‚îÄ health.ts
+
+    src/features/platform/
+    ‚îú‚îÄ‚îÄ overview/
+    ‚îú‚îÄ‚îÄ clients/
+    ‚îú‚îÄ‚îÄ entitlements/
+    ‚îú‚îÄ‚îÄ integrations/{banking,mpesa}/
+    ‚îú‚îÄ‚îÄ diagnostics/
+    ‚îú‚îÄ‚îÄ users/
+    ‚îú‚îÄ‚îÄ subscriptions/
+    ‚îú‚îÄ‚îÄ audit/
+    ‚îî‚îÄ‚îÄ health/
+
+The existing src/lib/api/platform.ts may temporarily re-export new modules during migration. DTO and query logic must have one owner. Avoid a big-bang framework/state-management rewrite; the current Next.js, React, strict TypeScript, MUI and TanStack Query stack is sufficient.
+
+### 14.4 Platform API contract map
+
+New SUPER_ADMIN-only endpoints:
+- PATCH /api/v1/platform/clients/:clientId/subscription ‚Äî update plan, products and dates for an existing subscription.
+- GET /api/v1/platform/entitlement-inventory ‚Äî paginated client/product assignment inventory.
+- GET /api/v1/platform/clients/:clientId/diagnostics ‚Äî read-only client diagnostics, audit and job evidence.
+- GET /api/v1/platform/integrations/banking ‚Äî read-only BankConnection monitoring and account rollups.
+- GET /api/v1/platform/integrations/mpesa ‚Äî read-only merchant-profile monitoring and ingestion evidence.
+
+Expanded existing endpoints:
+- POST /platform/clients accepts products, startDate and endDate.
+- GET /platform/clients supports search, product, plan, subscription and integration filters and returns enriched rows.
+- GET /platform/clients/:clientId returns expanded subscription, product, portfolio and integration details.
+- GET /platform/overview adds productAssignments, bankingIntegration and mpesaIntegration distributions.
+- GET /platform/health returns nested application, mongo, redis, scheduler, banking, mpesa and sms objects.
+- GET /subscription includes products and assignment actor fields.
+- POST /subscription/upgrade remains mounted but always returns 403 FORBIDDEN; customer self-service plan upgrades are retired.
+
+Subscription PATCH accepts plan (trial/basic/pro), products (BANKING/MPESA), startDate and endDate (date or null to clear). Empty/unknown-key bodies are rejected; status is immutable. The route does not create a missing Subscription. Treat this as a backend creation/repair dependency, not a form to retry.
+
+### 14.5 Query-state and invalidation
+
+The client directory query key includes page, limit, search, product, plan, subscriptionStatus, hasSubscription, bankProvider, bankConnectionStatus, bankAccountConnectionStatus, bankValidationStatus, mpesaState, callbackCapability, pullCapability, c2bRegistrationState, pullRegistrationState and isActive.
+
+Query-key families:
+- ['platform','overview']
+- ['platform','clients',filters]
+- ['platform','client',clientId]
+- ['platform','diagnostics',clientId]
+- ['platform','entitlements',filters]
+- ['platform','integrations','banking',filters]
+- ['platform','integrations','mpesa',filters]
+- ['platform','subscriptions',filters]
+- ['platform','audit',filters]
+- ['platform','health']
+
+After provisioning/subscription updates, invalidate client detail/list, entitlement inventory, subscription list and overview. After activation changes, invalidate directory/detail, diagnostics and overview. Never present a client-side filter of one paginated page as a complete platform-wide result.
+
+### 14.6 Entitlement and integration semantics
+
+Subscription.products is the sole source for product entitlement. A bank connection or merchant profile is integration evidence, not an entitlement grant. An entitled client may still lack a ready provider integration.
+
+The backend gate checks Client existence, isActive === true and products membership. It does not currently enforce subscription status or start/end dates. Render 403 PRODUCT_NOT_ENTITLED with the backend product/reason and distinguish it from provider configuration/readiness.
+
+- BANKING: /bank/*, /bank/connections/* and /transactions/*.
+- MPESA: /mpesa-collection/*.
+- Rent billing, manual payments, deposits and standard SMS are not gated by these product checks.
+
+Remove client self-service subscription upgrades. The Platform Manager owns plan/product/date changes.
+
+### 14.7 Monitoring and health safety
+
+Platform Banking monitoring is one row per BankConnection with BankAccount rollups. Platform M-PESA monitoring is one row per merchant profile and keeps callback capability independent from Pull capability. Both screens are read-only.
+
+Never model credential references, ciphertext, account secrets, OAuth tokens or raw provider payloads in browser DTOs. Do not add reauthorization/disconnect/merchant CRUD/manual Pull controls to these Superadmin views.
+
+Health generation makes no live provider calls. Configured, implemented, provider-verified and operational are distinct states. Co-op implementation/configuration is not live verification; KCB/Equity/NCBA remain unimplemented; Daraja app credential presence is not per-Till authorization; SMS provider acceptance does not prove handset delivery.
+
+The current health page expects flat string fields and calls string methods such as toLowerCase. The new health response is nested objects. Rebuild DTO and page before consuming it.
+
+### 14.8 Rollout and missing capabilities
+
+- Existing/default subscriptions may have products: []. Clients have no Banking/M-PESA entitlement until Manager assignment; rollout requires an explicit assignment plan.
+- A client with no subscription appears in inventory but cannot be repaired using the subscription PATCH route.
+- No automatic entitlement expiry based on status/dates exists.
+- Canonical MpesaTransaction list/detail, merchant-profile CRUD and manual Daraja Pull HTTP endpoints remain absent.
+- Platform integration pages are monitoring-only; provider callbacks and scheduled jobs remain backend-only.
+- Backend platform changes are implemented in source at the recorded branch/commit, but behavioural verification is pending.
+
+### 14.9 Verification boundary
+
+This branch changes planning documents only. No frontend runtime, build, lint or browser acceptance evidence is claimed.
+
+
+## Financial-correctness audit addendum
+
+Unknown, null and unverified financial values render as "Not available"; verified zeros render as zeros; no aggregate stands in for another. Dashboard, reports, payments, estate/house/tenant workspaces follow this rule (see docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md section 18). Status: IMPLEMENTED. Unresolved BLOCKED BY BACKEND item: `GET /transactions` and `GET /transactions/unmatched` return raw BankTransaction documents including `processingClaimToken` and `rawPayload` (verified: no projection in `transaction.service.js`); a safe DTO is required before bank transaction browsing can be called secure.
+
+## Implementation status
+
+The frontend now implements the M-PESA public `/pay` page, operator link panel and review queue, the bank connection lifecycle, estate-scoped server-side filtering and the Platform V2 screens. The authoritative per-item status (IMPLEMENTED / BLOCKED BY BACKEND / NOT IMPLEMENTED), files and blockers are in section 19 of `docs/FRONTEND_ENDPOINT_SCREEN_MATRIX.md`. Nothing was exercised against a live backend.
+## Co-op Connect 2.0.0 frontend contract ‚Äî effective state and operation policy
+
+The frontend consumes the existing Tycoon banking API. It does not call Co-op OAuth or resource endpoints directly.
+
+- Normal onboarding request: `credentialMaterial: { consumerKey, consumerSecret }`. Do not send customer banking passwords or user-entered scopes. CK/SK are Co-op application credentials, not Tycoon client ownership identifiers.
+- The BankAccount's own `connectionStatus` and account entitlements are not sufficient to authorize UI actions. Resolve the account's `connectionId` against the current live connection list or consume an explicit safe backend effective-state DTO. Require parent status `active`, the same selected Tycoon client and provider COOP. Missing parent fails closed.
+- Effective capability requires active parent + validated account + explicit account entitlement + provider readiness/lab policy. Missing/unknown values are unavailable.
+- `POST /bank/accounts/:id/sync` currently means Co-op FullStatement date-window sync. Gate it on statement capability and label it as statement-window sync. Poll capability belongs only to the separate AccountTransactions list operation, which remains disabled pending contract and identity proof.
+- HTTP 201 is not a provider-auth success signal by itself. Inspect returned BankConnection.status. A created record with status `failed` must render as failed.
+- Preserve ephemeral credential state on request error only when retry is useful; provide explicit discard, clear on close/cancel/success, and never persist secrets in query caches or browser storage.
+- Superadmin keeps explicit `clientId` query scoping and server authorization. After mutations, invalidate banking keys and `platformKeys.client(clientId)`.
+- Account name is an internal Tycoon label, not a Co-op verified account-holder name.
+
+
+## Manual-payment tenancy selection
+
+- **Decision vs. display.** The backend resolver decides NONE/UNIQUE/AMBIGUOUS with `limit(2)` on the exact eligibility predicate (`eligibleTenancyFilter`, same boundaries as `tenancyPeriodEligibility`). Two rows are enough to know "zero, one, or more than one"; it is a decision bound, not a candidate list, so it never needs to read the whole set. `eligibleTotal` is an exact count.
+- **Complete eligible-set selection.** When AMBIGUOUS, the operator chooses from `eligibleSelection`: the same predicate plus client/estate/house constraints applied in MongoDB, tenant-name search done by a `$lookup` guarded by `clientId` (regex-escaped, case-insensitive), sorted and paginated in the database. Nothing is truncated in JavaScript, so tenancy 21, 200 or 2,000 is reachable by paging or searching.
+- **Why history is not selectable.** Tenancies that do not fully cover the period (start after the period start, end before the period ends, bad status) are ineligible; accepting them would attribute rent to a tenant who did not occupy the house for the whole month. They are returned separately as `options` only to explain a `NONE` result.
+- **Frontend.** The dialog holds a selection keyed by exact tenancy id and bound to house+period; it clears on house/period change, survives paging and search changes, blocks submit while results are loading/stale, and never auto-picks on ambiguity. There is no second resolver in the browser; the backend revalidates the submitted `tenancyId` at payment creation.
+
+## Manual-payment tenancy selection
+
+- **Decision vs. display.** The backend resolver decides NONE/UNIQUE/AMBIGUOUS with `limit(2)` on the exact eligibility predicate (`eligibleTenancyFilter`, same boundaries as `tenancyPeriodEligibility`). Two rows are enough to know "zero, one, or more than one"; it is a decision bound, not a candidate list, so it never needs to read the whole set. `eligibleTotal` is an exact count.
+- **Complete eligible-set selection.** When AMBIGUOUS, the operator chooses from `eligibleSelection`: the same predicate plus client/estate/house constraints applied in MongoDB, tenant-name search done by a `$lookup` guarded by `clientId` (regex-escaped, case-insensitive), sorted and paginated in the database. Nothing is truncated in JavaScript, so tenancy 21, 200 or 2,000 is reachable by paging or searching.
+- **Why history is not selectable.** Tenancies that do not fully cover the period (start after the period start, end before the period ends, bad status) are ineligible; accepting them would attribute rent to a tenant who did not occupy the house for the whole month. They are returned separately as `options` only to explain a `NONE` result.
+- **Frontend.** The dialog holds a selection keyed by exact tenancy id and bound to house+period; it clears on house/period change, survives paging and search changes, blocks submit while results are loading/stale, and never auto-picks on ambiguity. There is no second resolver in the browser; the backend revalidates the submitted `tenancyId` at payment creation.
+
+---
+
+## Current merged-source reconciliation ‚Äî 21 November 2026
+
+**Frontend `main`:** `a27f20dd3244cdc7370cffa16b70c6cd32a45576`  
+**Backend `main`:** `0dbf7ef75ed6c1a39e24775aec9a86e08f7d0617`
+
+### Cross-layer request and identity contracts
+
+1. Authenticated API calls continue through the shared client with `credentials: 'include'` and CSRF. `Idempotency-Key` is an allowed domain header; backend CORS must allow it. Do not weaken session or CSRF controls.
+2. Co-op onboarding must send `credentialMaterial: { consumerKey, consumerSecret }` only. The current frontend form still sends legacy fields, while backend validation and provider auth are also inconsistent. Fix all layers to the G4 contract; keep UI capability disabled when backend provider/resource readiness is false.
+3. Deposit operations must resolve to an exact `tenancyId`, not an arbitrary active Tenancy discovered from `tenantId`. Validate Tenant, Tenancy, Client and Estate together. The existing tenant-level API may be used only for a unique match until the exact-tenancy API is integrated.
+4. Deposit settlement is not a refund or move-out. Do not present those effects unless the API response and backend transaction actually perform them under the approved G3 policy. A requirement update that returns an unchanged paid Deposit is a conflict, not success.
+5. Manual-payment candidate search/pagination must run in the AMBIGUOUS state. Keep resolver eligibility and option browsing on the same server predicate; do not treat the first 20 visible rows as the full set.
+
+### Workspace and reporting contracts
+
+- HouseType workspace needs the existing versioned-plan edit workflow; show effective period, reason and affected Houses that use `HOUSE_TYPE` billing. Historical charges remain snapshots.
+- Partial-month billing remains unsupported pending an owner-approved G3 formula.
+- Transactions is a receipt/transaction history surface. Reports is an aggregate surface; distinguish observed/verified/unallocated M-PESA receipts from G3 Payments and never double count a receipt plus its posted Payment.
+- Hide Banking-only report metrics and tabs when BANKING is not entitled.
+- Platform M-PESA filter layout needs real browser checks at narrow widths before claiming a responsive defect or fix.
+
+### Verification guardrails
+
+Use the frontend endpoint/screen matrix and backend G3/G4 requirements as a paired contract, but keep each repository's documents in that repository. Do not infer missing API routes or fields from UI needs. Add the backend contract first, then consume the committed request/response shape. Test network OPTIONS and mutation behavior, multi-tenancy, pagination beyond 20, entitlement visibility and real viewport sizes. Do not claim provider sandbox or live readiness from mocks or compilation.
