@@ -130,6 +130,8 @@ export function describeTenancy(o: TenancyOption, fmt: (d: string) => string): s
 
 /** Ordinary manual receipt input \u2014 house + receipt; no tenancy/period selector. */
 export function buildManualPaymentInput(args: {
+  tenantId: string;
+  tenancyId: string;
   houseId: string;
   amountKes: string;
   paymentDate: string;
@@ -138,7 +140,8 @@ export function buildManualPaymentInput(args: {
   idempotencyKey: string;
 }): ManualPaymentInput {
   const amountCents = Math.round(Number(args.amountKes) * 100);
-  if (!args.houseId) throw new Error('Select a house');
+  if (!args.tenantId) throw new Error('Select the tenant who paid');
+  if (!args.houseId || !args.tenancyId) throw new Error('Select the tenant\u2019s house');
   if (!args.paymentDate || !/^\d{4}-\d{2}-\d{2}$/.test(args.paymentDate)) {
     throw new Error('Choose a valid payment date');
   }
@@ -147,6 +150,8 @@ export function buildManualPaymentInput(args: {
   const key = String(args.idempotencyKey || '').trim();
   if (key.length < 8) throw new Error('Missing submission identity');
   return {
+    tenantId: args.tenantId,
+    tenancyId: args.tenancyId,
     houseId: args.houseId,
     amountCents,
     paymentDate: args.paymentDate,

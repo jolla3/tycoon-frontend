@@ -44,7 +44,41 @@ export interface TenantFinancials extends KnownArrears {
   currentPeriod: string;
 }
 
+/**
+ * Four distinct concepts — never interchangeable:
+ * received (gross money in), appliedToRent (allocated to charges), credit (available), outstanding (owed).
+ */
+export interface TenantAccount {
+  receivedCents: number;
+  billedCents: number;
+  appliedToRentCents: number;
+  appliedFromCreditCents: number;
+  creditCents: number;
+  outstandingCents: number;
+  netCents: number;
+}
+
+export interface TenantPaymentHistoryRow {
+  kind: 'manual_receipt' | 'payment' | 'mpesa_surplus';
+  id: string;
+  origin: string;
+  status: string;
+  paymentDate: string;
+  paymentDateLocal: string | null;
+  reference: string | null;
+  tenderMethod: string | null;
+  houseId: string | null;
+  houseNumber: string | null;
+  tenancyId: string | null;
+  grossCents: number;
+  appliedToRentCents: number;
+  appliedFromCreditCents: number;
+  newCreditCents: number;
+}
+
 export interface TenantDetail extends Tenant {
+  account?: TenantAccount;
+  paymentHistory?: TenantPaymentHistoryRow[];
   house?: { _id: string; houseNumber: string; status?: string; houseTypeId?: string } | null;
   estate?: { _id: string; name: string; address?: string } | null;
   financials?: TenantFinancials;

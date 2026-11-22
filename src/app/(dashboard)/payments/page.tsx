@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Pagination, Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  Stack, TextField, Select, MenuItem, Alert, useMediaQuery, useTheme,
+  Stack, TextField, Select, MenuItem, Alert, Autocomplete, useMediaQuery, useTheme,
 } from '@mui/material';
 import { Receipt, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
@@ -14,8 +14,7 @@ import { paymentsApi, type TenderMethod } from '@/lib/api/payments';
 import {
   buildManualPaymentInput, formatTenantBalance, nairobiToday, newManualPaymentIdempotencyKey, TENDER_METHODS,
 } from '@/features/payments/manual-payment';
-import { HouseSearchSelect } from '@/features/payments/house-search-select';
-import type { House as HouseRow } from '@/types/api';
+import { tenantsApi } from '@/lib/api/tenants';
 import { formatCents } from '@/lib/formatting/currency';
 import { PaymentStatusChip, PaymentOriginChip } from '@/components/data-display/status-chip';
 import { useVisibleEstates } from '@/features/estates/use-visible-estates';
@@ -51,18 +50,23 @@ export default function PaymentsPage() {
     () => paymentsApi.list({ page, limit: 20, estateId: estateScope || undefined })
   );
 
+  const gone = <span style={{ opacity: 0.6 }}>Unknown</span>;
   const columns: DataTableColumn<Payment>[] = [
     { key: 'date', header: 'Date', render: (p) => dateFormat(p.paymentDate, 'DD MMM YYYY') },
-    { key: 'reference', header: 'Reference', render: (p) => p.paymentReference ?? '\u2014' },
-    { key: 'period', header: 'Period', render: (p) => p.period },
+    { key: 'tenant', header: 'Tenant', render: (p) => p.tenantName ?? (p.tenantId ? gone : '—') },
+    { key: 'house', header: 'House', render: (p) => p.houseNumber ?? (p.houseId ? gone : '—') },
+    { key: 'reference', header: 'Receipt / reference', render: (p) => p.paymentReference ?? '—' },
     { key: 'origin', header: 'Source', render: (p) => <PaymentOriginChip origin={p.origin} /> },
     { key: 'status', header: 'Status', render: (p) => <PaymentStatusChip status={p.status} /> },
     {
       key: 'amount',
-      header: 'Amount',
+      header: 'Gross amount',
       align: 'right',
       render: (p) => (
-        <span style={p.status === 'REVERSED' ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>{formatCents(p.amountCents)}</span>
+        <span style={p.status === 'REVERSED' ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>
+          {formatCents(p.amountCents)}
+          {p.isMoneyReceived === false ? ' (credit applied)' : ''}
+        </span>
       ),
     },
   ];
@@ -71,7 +75,7 @@ export default function PaymentsPage() {
     <>
       <PageHeader
         title="Payments"
-        description="Payments recorded for your estates, including reversed ones. Only confirmed payments count as collected. Allocation is oldest-first on the server."
+        description="Money received for your estates, shown at the gross amount received (a receipt appears once). Only confirmed payments count as collected. Rows marked 'credit applied' use existing tenant credit and are not new money."
         actions={
           <Stack direction="row" spacing={1} alignItems="center">
             <Select
@@ -113,7 +117,7 @@ export default function PaymentsPage() {
         <DataTable
           columns={columns}
           rows={data?.items}
-          rowKey={(p) => p._id}
+          rowKey={(p) => `${p.listKind ?? 'payment'}:${p._id}`}
           isLoading={isLoading}
           error={error}
           emptyIcon={Receipt}
@@ -126,7 +130,9 @@ export default function PaymentsPage() {
                 <PaymentStatusChip status={p.status} />
               </Stack>
               <Typography variant="body2" color="text.secondary">
-                {p.paymentReference ?? 'No reference'} \u00b7 {dateFormat(p.paymentDate, 'DD MMM YYYY')}
+                {p.tenantName ?? 'Unknown tenant'} · House {p.houseNumber ?? '—'}
+                <br />
+                {p.paymentReference ?? 'No reference'} · {dateFormat(p.paymentDate, 'DD MMM YYYY')}
               </Typography>
             </Card>
           )}
@@ -140,6 +146,7 @@ export default function PaymentsPage() {
       {recordOpen && (
         <RecordPaymentDialog
           open={recordOpen}
+          initialEstateId={estateScope}
           onClose={() => setRecordOpen(false)}
           onSaved={(notice) => {
             setRecordOpen(false);
@@ -154,10 +161,12 @@ export default function PaymentsPage() {
 
 function RecordPaymentDialog({
   open,
+  initialEstateId,
   onClose,
   onSaved,
 }: {
   open: boolean;
+  initialEstateId: string | null;
   onClose: () => void;
   onSaved: (notice: string) => void;
 }) {
@@ -165,8 +174,10 @@ function RecordPaymentDialog({
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const connectivity = useConnectivity();
   const canReach = connectivity.state === 'online' || connectivity.state === 'syncing' || connectivity.state === 'sync-error';
-  const [house, setHouse] = useState<HouseRow | null>(null);
-  const houseId = house?._id ?? '';
+  const { estates } = useVisibleEstates();
+  const [estateId, setEstateId] = useState<string>(initialEstateId ?? '');
+  const [tenantId, setTenantId] = useState('');
+  const [tenancyId, setTenancyId] = useState('');
   const [amountKes, setAmountKes] = useState('');
   const [reference, setReference] = useState('');
   const [paymentDate, setPaymentDate] = useState(() => nairobiToday());
@@ -178,22 +189,47 @@ function RecordPaymentDialog({
   // Stable for one intended submission; regenerated only for a fresh form attempt.
   const [idempotencyKey, setIdempotencyKey] = useState(() => newManualPaymentIdempotencyKey());
 
+  // Single-estate users: the estate is unambiguous, so preselect it.
+  useEffect(() => {
+    if (!estateId && estates && estates.length === 1) setEstateId(estates[0]!._id);
+  }, [estates, estateId]);
+
+  const resetAttempt = () => {
+    setFormError(null); setSuccess(null); setBalanceAfter(null);
+    setIdempotencyKey(newManualPaymentIdempotencyKey());
+  };
+
+  // Tenants of the selected estate only (server scopes by estate and by the user's access).
+  const tenantsQuery = useQuery({
+    queryKey: ['payments', 'record', 'tenants', estateId],
+    queryFn: () => tenantsApi.list({ estateId }),
+    enabled: open && Boolean(estateId),
+    staleTime: 30_000,
+  });
+  const tenantOptions = tenantsQuery.data ?? [];
+  const selectedTenant = tenantOptions.find((t) => t._id === tenantId) ?? null;
+
   const contextQuery = useQuery({
-    queryKey: ['payments', 'manual-context', houseId, paymentDate],
-    queryFn: () => paymentsApi.manualContext({ houseId, paymentDate }),
-    enabled: open && Boolean(houseId) && Boolean(paymentDate),
+    queryKey: ['payments', 'tenant-context', tenantId, paymentDate],
+    queryFn: () => paymentsApi.tenantContext({ tenantId, paymentDate }),
+    enabled: open && Boolean(tenantId) && Boolean(paymentDate),
     staleTime: 0,
   });
-
   const ctx = contextQuery.data;
-  const occupancyOk = ctx?.occupancy?.ok === true;
-  const tenantName = ctx?.tenant?.name ?? null;
-  const balanceLabel = formatTenantBalance(ctx?.tenantBalanceCents ?? null);
+  const chosen = ctx?.tenancies.find((t) => t.tenancyId === tenancyId) ?? null;
+  // The chosen tenancy must cover the CURRENT payment date; otherwise force a re-pick.
+  const tenancyValid = Boolean(chosen && chosen.coversPaymentDate === true);
+  useEffect(() => {
+    if (ctx && tenancyId && !tenancyValid) setTenancyId('');
+  }, [ctx, tenancyId, tenancyValid]);
+  const balanceLabel = formatTenantBalance(ctx?.account?.netCents ?? null);
 
   const mutation = useMutation({
     mutationFn: () => {
       return paymentsApi.create(buildManualPaymentInput({
-        houseId,
+        tenantId,
+        tenancyId,
+        houseId: chosen?.houseId ?? '',
         amountKes,
         paymentDate,
         tenderMethod,
@@ -209,7 +245,7 @@ function RecordPaymentDialog({
       const notice = res.reused
         ? (afterLabel
           ? `Payment already recorded (idempotent). Tenant account: ${afterLabel}.`
-          : 'Payment already recorded (idempotent \u2014 no double allocation).')
+          : 'Payment already recorded (idempotent — no double allocation).')
         : (afterLabel
           ? `Payment recorded. Tenant account now: ${afterLabel}.`
           : 'Payment recorded.');
@@ -228,11 +264,12 @@ function RecordPaymentDialog({
 
   const canSubmit = Boolean(
     canReach
-    && houseId
+    && tenantId
+    && tenancyId
+    && tenancyValid
     && amountKes
     && paymentDate
     && tenderMethod
-    && occupancyOk
     && !mutation.isPending
     && !contextQuery.isFetching
   );
@@ -246,39 +283,72 @@ function RecordPaymentDialog({
           {formError && <Alert severity="error">{formError}</Alert>}
           {success && <Alert severity="success">{success}</Alert>}
 
-          <HouseSearchSelect
-            value={house}
-            onChange={(h) => {
-              setHouse(h);
-              setFormError(null);
-              setSuccess(null);
-              setBalanceAfter(null);
-              setIdempotencyKey(newManualPaymentIdempotencyKey());
+          <TextField
+            label="Estate"
+            select
+            value={estateId}
+            onChange={(e) => {
+              setEstateId(e.target.value);
+              setTenantId('');
+              setTenancyId('');
+              resetAttempt();
             }}
+            required
+          >
+            {(estates ?? []).map((e) => <MenuItem key={e._id} value={e._id}>{e.name}</MenuItem>)}
+          </TextField>
+
+          <Autocomplete
+            options={tenantOptions}
+            value={selectedTenant}
+            loading={tenantsQuery.isFetching}
+            disabled={!estateId}
+            getOptionLabel={(t) => (t.phone ? `${t.name} · ${t.phone}` : t.name)}
+            isOptionEqualToValue={(a, b) => a._id === b._id}
+            noOptionsText="No tenants in this estate"
+            onChange={(_, t) => {
+              setTenantId(t?._id ?? '');
+              setTenancyId('');
+              resetAttempt();
+            }}
+            renderInput={(params) => (
+              <TextField {...params} label="Tenant who paid" required helperText="Choose the tenant explicitly" />
+            )}
           />
 
-          {houseId && (
+          {tenantsQuery.isError && <Alert severity="error">Could not load tenants. Nothing was changed.</Alert>}
+
+          {tenantId && (
             contextQuery.isError ? (
-              <Alert severity="error">Could not load occupancy for this house. Nothing was changed.</Alert>
-            ) : contextQuery.isFetching && !ctx ? (
-              <Typography variant="body2" color="text.secondary">Checking occupancy\u2026</Typography>
-            ) : ctx && !occupancyOk ? (
-              <Alert severity="warning">{ctx.occupancy?.reason || 'This house cannot receive a payment right now.'}</Alert>
-            ) : occupancyOk ? (
-              <Alert severity="info">
-                Tenant: <strong>{tenantName || 'Resolved tenant'}</strong>
-                {balanceLabel != null && (
-                  <Typography variant="body2" component="div" sx={{ mt: 0.5 }}>
-                    Tenant account: {balanceLabel}
-                  </Typography>
+              <Alert severity="error">Could not load this tenant’s houses. Nothing was changed.</Alert>
+            ) : ctx ? (
+              <>
+                <TextField
+                  label="House / tenancy"
+                  select
+                  value={tenancyId}
+                  onChange={(e) => { setTenancyId(e.target.value); resetAttempt(); }}
+                  required
+                  SelectProps={{ displayEmpty: true }}
+                  helperText="Only tenancies that covered the payment date can be chosen"
+                >
+                  <MenuItem value="" disabled>Select house</MenuItem>
+                  {ctx.tenancies.map((t) => (
+                    <MenuItem key={t.tenancyId} value={t.tenancyId} disabled={t.coversPaymentDate !== true}>
+                      {`House ${t.houseNumber ?? 'unknown'} · ${dateFormat(t.startAt, 'DD MMM YYYY')} – ${t.endAt ? dateFormat(t.endAt, 'DD MMM YYYY') : 'present'}${t.status === 'ACTIVE' ? ' (current)' : ''}${t.coversPaymentDate === true ? '' : ' — not covering this date'}`}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                {ctx.tenancies.length === 0 && (
+                  <Alert severity="warning">This tenant has no tenancy to record a payment against.</Alert>
                 )}
-                {balanceLabel == null && (
-                  <Typography variant="body2" component="div" sx={{ mt: 0.5 }} color="text.secondary">
-                    Tenant account balance unavailable
-                  </Typography>
-                )}
-              </Alert>
-            ) : null
+                <Alert severity="info">
+                  Tenant account: {balanceLabel ?? 'unavailable'}
+                </Alert>
+              </>
+            ) : (
+              <Typography variant="body2" color="text.secondary">Loading houses…</Typography>
+            )
           )}
 
           <TextField
@@ -295,10 +365,10 @@ function RecordPaymentDialog({
             value={paymentDate}
             onChange={(e) => {
               setPaymentDate(e.target.value);
-              setBalanceAfter(null);
+              resetAttempt();
             }}
             InputLabelProps={{ shrink: true }}
-            helperText="Defaults to today (Africa/Nairobi). Backdated payments attribute to whoever occupied the house on that date."
+            helperText="Defaults to today (Africa/Nairobi). The chosen tenancy must have covered this date."
           />
 
           <TextField
@@ -327,12 +397,12 @@ function RecordPaymentDialog({
 
           {balanceAfter != null && (
             <Typography variant="caption" color="text.secondary">
-              Updated tenant account: {formatTenantBalance(balanceAfter) ?? '\u2014'}
+              Updated tenant account: {formatTenantBalance(balanceAfter) ?? '—'}
             </Typography>
           )}
 
           <Typography variant="caption" color="text.secondary">
-            Existing tenant credit is applied first, then this receipt, against the tenant\u2019s oldest obligations across their tenancies in this estate. Excess becomes tenant credit. Recording does not generate rent charges.
+            The chosen house records where the money was received. Existing tenant credit is applied first, then this receipt, against the tenant’s oldest obligations across all their tenancies in this estate; any excess becomes credit. Recording does not generate rent charges.
           </Typography>
         </Stack>
       </DialogContent>
@@ -347,7 +417,7 @@ function RecordPaymentDialog({
             mutation.mutate();
           }}
         >
-          {mutation.isPending ? 'Saving\u2026' : 'Record'}
+          {mutation.isPending ? 'Saving…' : 'Record'}
         </Button>
       </DialogActions>
     </Dialog>

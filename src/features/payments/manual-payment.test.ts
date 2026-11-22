@@ -149,6 +149,8 @@ describe('stale results cannot be submitted', () => {
 
 describe('buildManualPaymentInput', () => {
   const ok = {
+    tenantId: 'tn',
+    tenancyId: 'ty',
     houseId: 'h',
     amountKes: '1500.50',
     paymentDate: '2026-06-15',
@@ -158,6 +160,8 @@ describe('buildManualPaymentInput', () => {
   };
   it('builds cents, trims the reference and requires method + date + identity', () => {
     expect(buildManualPaymentInput(ok)).toEqual({
+      tenantId: 'tn',
+      tenancyId: 'ty',
       houseId: 'h',
       amountCents: 150050,
       paymentDate: '2026-06-15',
@@ -168,6 +172,8 @@ describe('buildManualPaymentInput', () => {
   });
   it('rejects missing house/method/date/identity and non-positive amount', () => {
     expect(() => buildManualPaymentInput({ ...ok, houseId: '' })).toThrow(/house/i);
+    expect(() => buildManualPaymentInput({ ...ok, tenancyId: '' })).toThrow(/house/i);
+    expect(() => buildManualPaymentInput({ ...ok, tenantId: '' })).toThrow(/tenant/i);
     expect(() => buildManualPaymentInput({ ...ok, tenderMethod: '' })).toThrow(/method/i);
     expect(() => buildManualPaymentInput({ ...ok, paymentDate: 'not-a-date' })).toThrow(/date/i);
     expect(() => buildManualPaymentInput({ ...ok, idempotencyKey: 'short' })).toThrow(/identity/i);

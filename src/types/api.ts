@@ -91,6 +91,12 @@ export interface Payment {
   period: string;
   origin: PaymentOrigin;
   status: PaymentStatus;
+  /** Resolved server-side for display; null when the relation is missing/deleted. */
+  tenantName?: string | null;
+  houseNumber?: string | null;
+  /** False for CREDIT-origin rows: they apply existing credit and are not money received. */
+  isMoneyReceived?: boolean;
+  listKind?: 'payment' | 'manual_receipt';
 }
 
 /** Public bank account DTO from bank.service toPublicBankAccount — no ciphertext/hashes. */
