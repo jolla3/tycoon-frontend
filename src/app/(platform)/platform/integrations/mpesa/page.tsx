@@ -49,7 +49,7 @@ export default function MpesaIntegrationMonitorPage() {
         &quot;Operational&quot; is derived from stored registration and ingestion evidence. It is not a live Safaricom check, and a registered callback does not prove payments are arriving. Registration and Pull are managed on the backend and cannot be triggered here.
       </Alert>
       <Card sx={{ p: 2, mb: 2 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} flexWrap="wrap" useFlexGap>
           <Select size="small" displayEmpty value={operationalState} onChange={(e) => reset(() => setOperationalState(e.target.value as MpesaOperationalState | ''))} sx={{ minWidth: 190 }} inputProps={{ 'aria-label': 'Operational state' }}>
             <MenuItem value="">Any operational state</MenuItem>
             <MenuItem value="DRAFT">Draft</MenuItem>
