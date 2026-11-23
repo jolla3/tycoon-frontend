@@ -637,3 +637,48 @@ The frontend consumes the existing Tycoon banking API. It does not call Co-op OA
 ### Verification guardrails
 
 Use the frontend endpoint/screen matrix and backend G3/G4 requirements as a paired contract, but keep each repository's documents in that repository. Do not infer missing API routes or fields from UI needs. Add the backend contract first, then consume the committed request/response shape. Test network OPTIONS and mutation behavior, multi-tenancy, pagination beyond 20, entitlement visibility and real viewport sizes. Do not claim provider sandbox or live readiness from mocks or compilation.
+
+
+## M-PESA frontend readiness correction — C2B-first, Pull optional (23 November 2026)
+
+This amendment is authoritative over older frontend language that treats callback and Pull verification as a combined capability checklist.
+
+### Separate presentation model
+
+Render these dimensions independently:
+
+- **Operational state:** exact backend value DRAFT, NOT_READY, ACTIVE or SUSPENDED. Never derive it in the browser.
+- **C2B registration:** NONE, REQUESTED, ACCEPTED, ALREADY_REGISTERED, REJECTED or UNCERTAIN.
+- **C2B callback capability:** UNKNOWN, NOT_ENABLED or VERIFIED.
+- **Pull registration:** its own independent provider-registration state.
+- **Pull capability:** UNKNOWN, NOT_ENABLED or VERIFIED.
+- **Financial posting readiness:** a separate backend/G3 gate; do not infer it from merchant ACTIVE state.
+
+The current pure helper in src/features/platform/mpesa-profile-state.ts returns a generic CAPABILITY_VERIFIED stage when either callbackCapability or pullCapability is VERIFIED. That is ambiguous and unsafe: Pull-only verification can be displayed as generic capability readiness even when C2B remains UNKNOWN. Replace that headline with channel-specific state derivation and tests. No browser helper may promote operationalState.
+
+### Superadmin panel behaviour
+
+- A C2B registration confirmation should show exactly that the provider accepted URL registration. Keep callback capability UNKNOWN until end-to-end delivery and approved trust evidence are reported by the backend.
+- Explain the next required C2B evidence: controlled callback observation for the exact shortcode/config version, durable ingestion, exact merchant resolution, replay-safe processing and approved callback trust controls.
+- Show Pull as optional recovery. UNKNOWN or NOT_ENABLED must not be displayed as a C2B activation blocker.
+- If Pull is ineligible, explain the backend's reason and keep registration disabled. Do not encourage saving a KYC number as a workaround for unverified eligibility.
+- Show platform callback config ID/version and each registration's stored version/timestamps. A stale version should produce a visible mismatch requiring backend reconciliation or re-registration.
+- Display backend-provided blocker details if/when the API exposes them. Do not reconstruct financial or provider evidence in the browser.
+- Do not render an activation, suspension or resume control until the backend implements and authorizes the corresponding audited operation. Registration and activation are separate actions.
+
+### State derivation and tests
+
+Remove the combined rule "callback OR Pull verified => CAPABILITY_VERIFIED". Prefer named C2B and Pull indicators and, where a compact stage is needed, derive the headline from C2B readiness only. Operational remains ACTIVE only when the backend says ACTIVE.
+
+Required unit cases:
+1. C2B ACCEPTED + callback UNKNOWN + Pull UNKNOWN => registration confirmed; not operational.
+2. C2B VERIFIED + Pull UNKNOWN/NOT_ENABLED + backend ACTIVE => C2B operational; Pull optional/unavailable.
+3. Pull VERIFIED + callback UNKNOWN => Pull capability verified only; C2B remains unverified.
+4. C2B registration UNCERTAIN => reconciliation required; no retry action until backend permits.
+5. C2B config-version mismatch => not ready.
+6. Backend DRAFT/NOT_READY/SUSPENDED is never client-promoted.
+7. pullRegistrationEligible=false blocks Pull registration even when a nominated number is captured.
+
+The current Superadmin view reports mamba Till 8965322 and Safaricom Sandbox Till 600995 with C2B registration confirmed under daraja-sandbox version d3c06c1df7e7, while callback and Pull capability remain UNKNOWN. These owner-reported values are display evidence, not a browser activation rule.
+
+No frontend API route, provider mutation, profile activation or G3 posting is added by this design amendment.
