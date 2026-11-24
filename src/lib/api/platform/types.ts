@@ -99,6 +99,25 @@ export interface MpesaRegistrationEvidence {
   succeededAt: string | null;
 }
 
+/**
+ * Backend-authoritative lifecycle availability. The UI renders these flags; it never recomputes
+ * them. `revision` must be echoed as `expectedRevision` on every lifecycle call.
+ */
+export interface MpesaLifecycleAvailability {
+  revision: number;
+  canActivate: boolean;
+  canSuspend: boolean;
+  canResume: boolean;
+  activationBlockers: string[];
+  resumeBlockers: string[];
+}
+
+export interface MpesaLifecycleInput {
+  /** The `lifecycleAvailability.revision` the operator reviewed. Stale values are rejected (409). */
+  expectedRevision: number;
+  reason?: string;
+}
+
 /** Safe M-PESA merchant profile (no credentials, no tokens, never the nominated number). */
 export interface ClientMpesaProfile {
   id: string;
@@ -117,12 +136,21 @@ export interface ClientMpesaProfile {
   pullRegistration?: MpesaRegistrationEvidence | null;
   pullNominatedNumber?: { captured: boolean; masked: string | null };
   lastPullRegisteredAt: string | null;
+  /** Backend lifecycle revision (also in lifecycleAvailability.revision). */
+  lifecycleRevision?: number;
+  lifecycle?: { activatedAt: string | null; suspendedAt: string | null; suspensionReason: string | null; resumedAt: string | null };
+  /** C2B-only readiness blockers (codes). Pull never appears here. */
+  readinessBlockers?: string[];
+  /** Optional Pull information (codes). Never a C2B blocker. */
+  pullAdvisories?: string[];
+  lifecycleAvailability?: MpesaLifecycleAvailability;
   /** Server fail-closed flag: false until provider evidence exists for this merchant type. */
   pullRegistrationEligible?: boolean;
   createdAt?: string;
   updatedAt?: string;
   /** Present on the single-profile GET and on mutation results; absent on list summaries. */
-  estates?: Array<{ estateId: string; status: 'ACTIVE' | 'INACTIVE' }>;
+  /** `eligible` is backend-computed: ACTIVE mapping to an existing, active estate of this same client. */
+  estates?: Array<{ estateId: string; status: 'ACTIVE' | 'INACTIVE'; eligible?: boolean }>;
   ingestionEvidence?: Record<string, { lastReceivedAt: string; lastState: string; total: number }>;
 }
 
