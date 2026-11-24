@@ -1,5 +1,19 @@
 # Tycoon Estates frontend — short architecture handoff
 
+## Current M-PESA frontend contract — 23 November 2026
+
+- C2B is the primary collection path; Pull is optional recovery. Pull UNKNOWN/NOT_ENABLED must never block C2B readiness.
+- Display operational state, C2B registration/capability, Pull registration/capability and G3 posting readiness independently.
+- Never use a generic "Capability verified" state based on callback OR Pull. Pull-only proof does not verify C2B.
+- Only backend operationalState ACTIVE may be labelled Operational. The browser cannot mutate operational/capability fields.
+- C2B registration accepted is not callback delivered, callback trusted, receipt verified or rent posted.
+- Do not add activation controls until the backend provides audited lifecycle APIs. Keep Pull registration disabled unless backend pullRegistrationEligible=true.
+- Owner-reported profiles: mamba Till 8965322 and Safaricom Sandbox Till 600995 show C2B registration accepted under daraja-sandbox config d3c06c1df7e7; callback/Pull remain UNKNOWN. These screen values do not prove callback delivery.
+- Backend design and provider evidence are authoritative: backend docs/g5/PRD.md, docs/g5/architecture.md and docs/provider-contracts/G5_DARAJA_C2B_PULL_EVIDENCE.md.
+
+---
+
+
 **Frontend baseline:** `a27f20dd3244cdc7370cffa16b70c6cd32a45576`  
 **Backend baseline:** `0dbf7ef75ed6c1a39e24775aec9a86e08f7d0617`  
 **Updated:** 21 November 2026

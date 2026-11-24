@@ -11,10 +11,15 @@ import { platformApi, type ClientMpesaProfile } from '@/lib/api/platform';
 import { platformKeys } from '@/lib/query/keys';
 import { ApiError } from '@/lib/api/client';
 import {
-  REGISTRATION_LABEL, STAGE_LABEL, isPlausibleKenyanMsisdn, onboardingStage, registrationActions, registrationDisplay,
+  CALLBACK_LABEL, OPERATIONAL_LABEL, OPERATIONAL_MEANING, PULL_CAPABILITY_LABEL, REGISTRATION_LABEL, STAGE_LABEL,
+  blockerText, isPlausibleKenyanMsisdn, lifecycleControl, onboardingStage, operationalTone, registrationActions,
+  registrationDisplay,
 } from './mpesa-profile-state';
 
-type Confirm = { title: string; body: string; run: () => Promise<unknown> } | null;
+// `reason` asks the operator for a mandatory reason (suspension). Lifecycle dialogs also freeze the
+// revision the operator reviewed so a concurrent change is detected by the backend (409).
+type Confirm = { title: string; body: string; run: (reason?: string) => Promise<unknown>; reasonRequired?: boolean } | null;
+const STALE_MESSAGE = 'This profile changed since you loaded it. It has been refreshed from the server. Review the new state and blockers before trying again.';
 const when = (v?: string | null) => (v ? new Date(v).toLocaleString() : '—');
 
 /** One merchant profile: type, mappings, registration evidence and explicit actions. */
@@ -27,6 +32,7 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
   const [notice, setNotice] = useState<string | null>(null);
   const [pullNumber, setPullNumber] = useState('');
   const [addEstateId, setAddEstateId] = useState('');
+  const [reason, setReason] = useState('');
 
   const detail = useQuery({
     queryKey: ['platform', 'mpesa-profile', clientId, profile.id],
@@ -40,6 +46,7 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
   const estateName = (id: string) => estates.data?.find((e) => e._id === id)?.name ?? 'Estate';
   const actions = registrationActions(p, Boolean(cfg.data?.configured));
   const stage = onboardingStage(p);
+  const lifecycle = lifecycleControl(p);
 
   const refresh = async () => {
     await Promise.all([
@@ -47,6 +54,40 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
       qc.invalidateQueries({ queryKey: platformKeys.client(clientId) }),
       qc.invalidateQueries({ queryKey: platformKeys.mpesaIntegrations() }),
     ]);
+  };
+  // Lifecycle calls: on a 409 (stale revision, or a blocker that appeared) refresh from the server and
+  // ask the operator to review. Never assume the action happened; state only ever comes from the server.
+  const lifecycleCall = async (fn: () => Promise<unknown>) => {
+    try { return await fn(); } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        await refresh();
+        if (e.code === 'MPESA_LIFECYCLE_BLOCKED') throw e;
+        throw new ApiError(STALE_MESSAGE, e.code, e.status, e.details);
+      }
+      throw e;
+    }
+  };
+  const openLifecycle = (action: 'activate' | 'suspend' | 'resume') => {
+    const revision = lifecycle.revision;
+    if (revision === null) return;
+    setReason('');
+    const base = { clientId, profileId: profile.id };
+    if (action === 'activate') setConfirm({
+      title: 'Activate this merchant profile?',
+      body: 'Activation marks the C2B collection path operational after the backend re-checks registration evidence against the current callback configuration, callback verification and estate mappings. It does not enable automatic rent posting, which is gated separately. It is audited.',
+      run: (r) => lifecycleCall(() => platformApi.clients.activateMpesaProfile(base.clientId, base.profileId, { expectedRevision: revision, ...(r ? { reason: r } : {}) })),
+    });
+    if (action === 'suspend') setConfirm({
+      title: 'Suspend this merchant profile?',
+      body: 'The merchant stops being operational until it is resumed. Enter the reason; it is recorded in the audit log.',
+      reasonRequired: true,
+      run: (r) => lifecycleCall(() => platformApi.clients.suspendMpesaProfile(base.clientId, base.profileId, { expectedRevision: revision, reason: String(r) })),
+    });
+    if (action === 'resume') setConfirm({
+      title: 'Resume this merchant profile?',
+      body: 'The backend re-checks every readiness condition before resuming. It is audited.',
+      run: (r) => lifecycleCall(() => platformApi.clients.resumeMpesaProfile(base.clientId, base.profileId, { expectedRevision: revision, ...(r ? { reason: r } : {}) })),
+    });
   };
   const fail = (e: unknown) => setError(e instanceof ApiError ? e.message : 'The action could not be completed.');
 
@@ -63,13 +104,13 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
   return (
     <Box sx={{ minWidth: 0 }}>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-        <Typography variant="body2" fontWeight={600}>{p.displayName || p.businessShortCode}</Typography>
+        <Typography variant="body2" fontWeight={600} sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>{p.displayName || p.businessShortCode}</Typography>
         <Chip size="small" label={p.merchantType === 'PAYBILL' ? 'PayBill' : 'Buy Goods Till'} />
-        <Chip size="small" variant="outlined" label={`Shortcode ${p.businessShortCode}`} />
-        <Chip size="small" color={stage === 'OPERATIONAL' ? 'success' : stage === 'FAILED' || stage === 'UNCERTAIN' ? 'warning' : 'default'} label={STAGE_LABEL[stage]} />
+        <Chip size="small" variant="outlined" label={`Shortcode ${p.businessShortCode}`} sx={{ maxWidth: '100%' }} />
+        <Chip size="small" color={operationalTone(p.operationalState)} label={`State: ${OPERATIONAL_LABEL[p.operationalState] ?? p.operationalState}`} />
       </Stack>
       <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-        Operational state {p.operationalState} · callback capability {p.callbackCapability} · pull capability {p.pullCapability}. These are reported by the backend; this page cannot change them.
+        {OPERATIONAL_MEANING[p.operationalState] ?? ''} Status is reported by the backend; this page cannot set operational state or capability.
       </Typography>
 
       {detail.isLoading ? <Skeleton variant="rounded" height={64} sx={{ mt: 1 }} /> : null}
@@ -81,7 +122,9 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
           <Chip
             key={e.estateId}
             size="small"
-            label={estateName(e.estateId)}
+            label={e.eligible === false ? `${estateName(e.estateId)} — estate inactive or not this client's` : estateName(e.estateId)}
+            color={e.eligible === false ? 'warning' : 'default'}
+            sx={{ maxWidth: '100%' }}
             onDelete={() => setConfirm({
               title: 'Remove estate mapping?',
               body: `${estateName(e.estateId)} will no longer be authorized to use this shortcode. Receipts already routed to it stay attributed. Active collection references for this estate must be retired first.`,
@@ -112,12 +155,62 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
         <Alert severity="warning" sx={{ mt: 0.5 }}>Callback configuration is not available on the platform ({cfg.data?.reason ?? 'unknown'}). Registration is blocked.</Alert>
       )}
 
-      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1.5 }}>C2B URL registration</Typography>
+      <Box sx={{ mt: 2, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 1, minWidth: 0 }}>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Typography variant="subtitle2">C2B collection (primary path)</Typography>
+        <Chip size="small" variant="outlined" label={STAGE_LABEL[stage]} sx={{ maxWidth: '100%' }} />
+      </Stack>
+
+      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1 }}>URL registration</Typography>
       <Typography variant="body2">{REGISTRATION_LABEL[registrationDisplay(p.c2bRegistrationState)]}</Typography>
-      <Typography variant="caption" color="text.secondary" display="block">
-        Config version {p.c2bRegistration?.configVersion ?? '—'} · attempted {when(p.c2bRegistration?.attemptedAt)} · succeeded {when(p.c2bRegistration?.succeededAt)}
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ overflowWrap: 'anywhere' }}>
+        Registered against {p.c2bRegistration?.configId ?? '—'} version {p.c2bRegistration?.configVersion ?? '—'}
+        {cfg.data?.configured ? ` (current: version ${cfg.data.version})` : ''} · attempted {when(p.c2bRegistration?.attemptedAt)} · succeeded {when(p.c2bRegistration?.succeededAt)}
       </Typography>
-      <Stack direction="row" spacing={1} sx={{ mt: 0.75 }} flexWrap="wrap" useFlexGap>
+      <Typography variant="caption" color="text.secondary" display="block">
+        Registration accepted means the provider accepted the URLs. It does not prove callbacks are delivered or trusted.
+      </Typography>
+
+      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1 }}>Callback capability</Typography>
+      <Typography variant="body2">{CALLBACK_LABEL[p.callbackCapability] ?? p.callbackCapability}</Typography>
+
+      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1 }}>What is blocking C2B readiness</Typography>
+      {p.readinessBlockers === undefined ? (
+        <Typography variant="caption" color="text.secondary">Not reported by the backend.</Typography>
+      ) : p.readinessBlockers.length === 0 ? (
+        <Typography variant="body2">No C2B readiness blockers reported.</Typography>
+      ) : (
+        <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+          {p.readinessBlockers.map((b) => <Typography component="li" variant="body2" key={b} sx={{ overflowWrap: 'anywhere' }}>{blockerText(b)}</Typography>)}
+        </Box>
+      )}
+
+      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1.5 }}>Merchant lifecycle</Typography>
+      {lifecycle.action === null ? null : !lifecycle.reported ? (
+        <Alert severity="info" sx={{ mt: 0.5 }}>The backend did not report lifecycle availability for this profile, so lifecycle actions are unavailable. Refresh to retry.</Alert>
+      ) : (
+        <Stack spacing={1} sx={{ mt: 0.5 }}>
+          <Button
+            size="small" variant="contained" color={lifecycle.action === 'suspend' ? 'warning' : 'primary'}
+            disabled={!lifecycle.enabled || act.isPending || detail.isFetching}
+            onClick={() => openLifecycle(lifecycle.action!)}
+            sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' } }}
+          >
+            {lifecycle.action === 'activate' ? 'Activate merchant' : lifecycle.action === 'suspend' ? 'Suspend merchant' : 'Resume merchant'}
+          </Button>
+          {!lifecycle.enabled && lifecycle.blockers.length > 0 ? (
+            <Alert severity="warning">
+              Not available yet:
+              <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                {lifecycle.blockers.map((b) => <Typography component="li" variant="body2" key={b} sx={{ overflowWrap: 'anywhere' }}>{blockerText(b)}</Typography>)}
+              </Box>
+            </Alert>
+          ) : null}
+        </Stack>
+      )}
+
+      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1.5 }}>Registration actions</Typography>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 0.75 }} flexWrap="wrap" useFlexGap>
         <Button size="small" variant="outlined" disabled={!actions.canRegisterC2b || act.isPending}
           onClick={() => setConfirm({
             title: 'Register C2B URLs with Safaricom?',
@@ -133,10 +226,23 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
           </>
         ) : null}
       </Stack>
+      </Box>
 
-      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1.5 }}>Pull transactions</Typography>
+      <Box sx={{ mt: 2, p: 1.5, border: 1, borderColor: 'divider', borderRadius: 1, minWidth: 0 }}>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Typography variant="subtitle2">Pull transactions</Typography>
+        <Chip size="small" variant="outlined" label="Optional recovery — not required for C2B" sx={{ maxWidth: '100%' }} />
+      </Stack>
+      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1 }}>Registration</Typography>
       <Typography variant="body2">{REGISTRATION_LABEL[registrationDisplay(p.pullRegistrationState)]}</Typography>
-      <Typography variant="caption" color="text.secondary" display="block">
+      <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1 }}>Capability</Typography>
+      <Typography variant="body2">{PULL_CAPABILITY_LABEL[p.pullCapability] ?? p.pullCapability}</Typography>
+      {p.pullAdvisories && p.pullAdvisories.length > 0 ? (
+        <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
+          {p.pullAdvisories.map((b) => <Typography component="li" variant="caption" color="text.secondary" key={b} sx={{ overflowWrap: 'anywhere' }}>{blockerText(b)}</Typography>)}
+        </Box>
+      ) : null}
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>
         Nominated number: {p.pullNominatedNumber?.captured ? p.pullNominatedNumber.masked : 'not captured'} (stored encrypted; never shown) · config version {p.pullRegistration?.configVersion ?? '—'} · attempted {when(p.pullRegistration?.attemptedAt)}
       </Typography>
       {actions.canSetPullNumber ? (
@@ -158,7 +264,7 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
           Pull registration is disabled for this merchant type: no official provider evidence or controlled sandbox observation confirms eligibility yet. The number can be saved, but nothing is sent to Safaricom.
         </Alert>
       ) : null}
-      <Stack direction="row" spacing={1} sx={{ mt: 0.75 }} flexWrap="wrap" useFlexGap>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 0.75 }} flexWrap="wrap" useFlexGap>
         <Button size="small" variant="outlined" disabled={!actions.canRegisterPull || act.isPending}
           onClick={() => setConfirm({
             title: 'Register Pull transactions?',
@@ -174,17 +280,27 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
           </>
         ) : null}
       </Stack>
+      </Box>
 
       {notice ? <Alert severity="success" sx={{ mt: 1 }}>{notice}</Alert> : null}
       {error ? <Alert severity="error" sx={{ mt: 1 }}>{error}</Alert> : null}
 
       <Dialog open={Boolean(confirm)} onClose={() => setConfirm(null)} fullScreen={fullScreen} fullWidth maxWidth="xs">
         <DialogTitle>{confirm?.title}</DialogTitle>
-        <DialogContent><DialogContentText>{confirm?.body}</DialogContentText></DialogContent>
-        <DialogActions>
+        <DialogContent>
+          <DialogContentText>{confirm?.body}</DialogContentText>
+          {confirm?.reasonRequired ? (
+            <TextField
+              autoFocus fullWidth multiline minRows={2} size="small" margin="dense" label="Reason (required)"
+              value={reason} onChange={(e) => setReason(e.target.value)}
+              inputProps={{ maxLength: 500 }} helperText="At least 3 characters. Recorded in the audit log."
+            />
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
           <Button onClick={() => setConfirm(null)}>Cancel</Button>
-          <Button variant="contained" disabled={act.isPending}
-            onClick={() => { const c = confirm; setConfirm(null); if (c) run('Done.', c.run); }}>
+          <Button variant="contained" disabled={act.isPending || (Boolean(confirm?.reasonRequired) && reason.trim().length < 3)}
+            onClick={() => { const c = confirm; const r = reason.trim(); setConfirm(null); if (c) run('Done.', () => c.run(r || undefined)); }}>
             Confirm
           </Button>
         </DialogActions>

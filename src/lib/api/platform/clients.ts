@@ -12,6 +12,7 @@ import type {
   ClientMpesaProfile,
   MpesaCallbackConfig,
   MpesaCollectionReferenceRow,
+  MpesaLifecycleInput,
 } from './types';
 
 export const clientsApi = {
@@ -43,6 +44,14 @@ export const clientsApi = {
   reconcileMpesaRegistration: (clientId: string, profileId: string, kind: 'c2b' | 'pull', outcome: 'NOT_REGISTERED' | 'REGISTERED') =>
     apiClient.post<{ registrationState: string }>(
       `/platform/clients/${clientId}/mpesa-profiles/${profileId}/registrations/${kind}/reconcile`, { outcome }),
+  // Explicit Superadmin lifecycle. The backend re-evaluates every condition on submit; the body
+  // carries only the reviewed revision and a reason, never a state.
+  activateMpesaProfile: (clientId: string, profileId: string, input: MpesaLifecycleInput) =>
+    apiClient.post<ClientMpesaProfile>(`/platform/clients/${clientId}/mpesa-profiles/${profileId}/lifecycle/activate`, input),
+  suspendMpesaProfile: (clientId: string, profileId: string, input: MpesaLifecycleInput & { reason: string }) =>
+    apiClient.post<ClientMpesaProfile>(`/platform/clients/${clientId}/mpesa-profiles/${profileId}/lifecycle/suspend`, input),
+  resumeMpesaProfile: (clientId: string, profileId: string, input: MpesaLifecycleInput) =>
+    apiClient.post<ClientMpesaProfile>(`/platform/clients/${clientId}/mpesa-profiles/${profileId}/lifecycle/resume`, input),
   listMpesaReferences: (clientId: string, profileId: string, query: { page?: number; limit?: number; status?: 'ACTIVE' | 'RETIRED'; estateId?: string } = {}) =>
     apiClient.get<PageResult<MpesaCollectionReferenceRow>>(
       `/platform/clients/${clientId}/mpesa-profiles/${profileId}/references`, query as Record<string, QueryValue>),

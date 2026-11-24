@@ -627,3 +627,42 @@ Do not invent deposit deduction/refund/move-out atomicity, deposit payment-befor
 ### Cross-repository acceptance
 
 Test request payloads and backend validators together; exercise one Tenant with multiple active Tenancies and cross-Estate isolation; prove ambiguous manual options beyond 20 are selectable; verify cookie + CSRF + idempotency preflight; test HouseType future-version messaging; verify entitlement-gated reports; and run narrow-mobile/tablet browser checks. A frontend build alone is not browser or provider acceptance.
+
+
+## M-PESA capability/readiness correction — 23 November 2026 (latest, authoritative)
+
+This amendment extends the 19 November merchant-ownership and registration requirements. C2B is the primary collection path; Pull is optional recovery. The frontend must not imply that both capabilities are required for a merchant to operate.
+
+### Product requirements
+
+- Display C2B registration, C2B callback capability, Pull registration, Pull capability and overall operational state as separate facts. Do not collapse registration acceptance, capability verification and operational state into one status.
+- C2B is the primary collection path. A profile may be C2B-ready/ACTIVE while Pull remains UNKNOWN or NOT_ENABLED. The UI must not show Pull's absence as a C2B blocker.
+- Pull being VERIFIED must not be presented as proof that C2B callbacks work. A generic "Capability verified" stage is insufficient because it does not identify which channel was verified.
+- The only "Operational" headline is the backend-reported operationalState ACTIVE. The browser must not infer or write ACTIVE from registration or capability fields.
+- DRAFT means configuration exists but operational onboarding is not complete. For the current profiles, C2B URL registration is confirmed but callback capability remains UNKNOWN; the interface must explain that a delivered, safely processed callback has not yet been evidenced.
+- Show the current callback-config identifier/version and the version used by the registration attempt. Make version mismatch or missing configuration visible.
+- Explain that the platform owns shared callback URLs and Daraja credentials. Clients do not host callback endpoints or enter platform Consumer Key/Secret.
+- Pull registration controls remain disabled unless the backend reports pullRegistrationEligible=true and the protected nominated KYC MSISDN is captured. Capturing a number is not registration.
+- Do not add an Activate/Suspend control until the backend provides an authenticated, audited server-side lifecycle API. Never patch capability or operational fields from the browser.
+- Keep financial posting status distinct from merchant collection readiness. An ACTIVE merchant does not mean G3 posting is enabled, a callback is trusted for financial purposes, a receipt is attributed, or rent was settled.
+
+### Current profile evidence shown by the owner
+
+The 22 November 2026 Superadmin screen reports:
+- mamba, Buy Goods Till 8965322: C2B registration confirmed against shared daraja-sandbox configuration d3c06c1df7e7; callback UNKNOWN; Pull UNKNOWN and not registered; a masked nominated number is captured.
+- Safaricom Sandbox Till 600995: C2B registration confirmed against the same displayed callback configuration; callback UNKNOWN; Pull UNKNOWN and not registered; nominated number not captured.
+
+These are owner-provided screen observations. They do not establish callback delivery or production readiness. Do not equate either shortcode with historical 600987 or 174379 without provider evidence.
+
+### Frontend acceptance
+
+1. C2B ACCEPTED + callback UNKNOWN is shown as registration confirmed / callback unverified, not capability verified or operational.
+2. C2B VERIFIED + Pull UNKNOWN/NOT_ENABLED is presented as C2B-ready when and only when backend operationalState is ACTIVE; Pull is shown as an optional recovery gap.
+3. Pull VERIFIED + callback UNKNOWN never produces a C2B verified or operational display.
+4. Any generic capability headline is replaced by named C2B and Pull status labels.
+5. OperationalState remains backend-owned; no client-side mutation or optimistic promotion.
+6. The page shows actionable backend blockers and distinguishes required C2B blockers from optional Pull limitations.
+7. No Activate or Pull registration action is invented; only documented backend operations are rendered.
+8. Tests cover each combination above, stale callback-config versions and API error/uncertain states.
+
+This is a frontend product-contract update only. It does not enable provider callbacks, register Pull, change either profile, or authorize G3 posting.
