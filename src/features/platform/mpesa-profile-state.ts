@@ -98,6 +98,7 @@ const BLOCKER_TEXT: Record<string, string> = {
   CALLBACK_UNKNOWN: 'Callback delivery and trust have not been verified. Registration alone does not establish this, and it cannot be set from this page.',
   CALLBACK_NOT_ENABLED: 'Callbacks are not enabled for this merchant.',
   NO_ACTIVE_ESTATE_MAPPING: 'No active estate of this client is mapped to this shortcode.',
+  CLIENT_INACTIVE: 'This client is inactive. Activate the client before activating or resuming its M-PESA merchant profile.',
   CALLBACK_CONFIG_UNAVAILABLE: 'The platform callback configuration is unavailable, so registration cannot be checked.',
   C2B_REGISTRATION_EVIDENCE_MISSING: 'The C2B registration has no recorded configuration evidence. Register the C2B URLs again.',
   C2B_REGISTRATION_IDENTITY_EVIDENCE_MISSING: 'The C2B registration has no recorded shortcode or merchant type proof, so it cannot be matched to this merchant. It was not back-filled; register the C2B URLs again.',
@@ -167,7 +168,7 @@ export function lifecycleControl(p: ClientMpesaProfile): {
 export function registrationActions(p: ClientMpesaProfile, callbackConfigured: boolean) {
   const c2b = registrationDisplay(p.c2bRegistrationState);
   const pull = registrationDisplay(p.pullRegistrationState);
-  const mapped = (p.estates ?? []).some((e) => e.status === 'ACTIVE');
+  const mapped = (p.estates ?? []).some((e) => e.status === 'ACTIVE' && e.eligible === true);
   return {
     canRegisterC2b: callbackConfigured && mapped && (c2b === 'NOT_REGISTERED' || c2b === 'FAILED' || c2b === 'CONFIRMED'),
     // Pull registration is one-time and needs the protected nominated number.
