@@ -175,7 +175,11 @@ export default function TenantWorkspacePage() {
               {tenant.smsHistory!.map((m) => (
                 <Box key={m._id}>
                   <Chip size="small" label={m.status} variant="outlined" />
-                  <Typography variant="body2">{m.message}</Typography>
+                  <Typography variant="body2">
+                    {m.deliveryMode === 'G5_PROTECTED' || m.type === 'g5_onboarding_link'
+                      ? 'M-PESA onboarding notification (private payment link hidden for security).'
+                      : m.message}
+                  </Typography>
                 </Box>
               ))}
             </Stack>
