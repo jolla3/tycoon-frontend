@@ -80,7 +80,7 @@ export function ClientMpesaProfileCreate({ clientId }: { clientId: string }) {
               inputProps={{ inputMode: 'numeric', maxLength: 20 }}
               required
               error={Boolean(businessShortCode) && !validShortCode}
-              helperText="Digits only. A shortcode can be owned by one client on the whole platform."
+              helperText="Enter the exact organization ShortCode from Safaricom. For Buy Goods, this is the Till number used for C2B registration/notifications and Pull history queries. A ShortCode can be owned by one client platform-wide."
             />
             {estates.isLoading ? <Alert severity="info">Loading this client&apos;s estates…</Alert> : null}
             {estates.error ? <Alert severity="error">{estates.error instanceof ApiError ? estates.error.message : 'Could not load client estates.'}</Alert> : null}

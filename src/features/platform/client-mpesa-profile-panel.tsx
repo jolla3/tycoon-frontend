@@ -106,7 +106,7 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Typography variant="body2" fontWeight={600} sx={{ overflowWrap: 'anywhere', minWidth: 0 }}>{p.displayName || p.businessShortCode}</Typography>
         <Chip size="small" label={p.merchantType === 'PAYBILL' ? 'PayBill' : 'Buy Goods Till'} />
-        <Chip size="small" variant="outlined" label={`Shortcode ${p.businessShortCode}`} sx={{ maxWidth: '100%' }} />
+        <Chip size="small" variant="outlined" label={`${p.merchantType === 'BUY_GOODS_TILL' ? 'Till ShortCode' : 'PayBill ShortCode'} ${p.businessShortCode}`} sx={{ maxWidth: '100%' }} />
         <Chip size="small" color={operationalTone(p.operationalState)} label={`State: ${OPERATIONAL_LABEL[p.operationalState] ?? p.operationalState}`} />
       </Stack>
       <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
@@ -232,6 +232,7 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Typography variant="subtitle2">Pull transactions</Typography>
         <Chip size="small" variant="outlined" label="Optional recovery — not required for C2B" sx={{ maxWidth: '100%' }} />
+      <Typography variant="caption" color="text.secondary" display="block">C2B is the push-notification path. Pull is a separate history/recovery query for the same merchant ShortCode and requires its own one-time registration.</Typography>
       </Stack>
       <Typography variant="caption" fontWeight={600} display="block" sx={{ mt: 1 }}>Registration</Typography>
       <Typography variant="body2">{REGISTRATION_LABEL[registrationDisplay(p.pullRegistrationState)]}</Typography>
@@ -243,25 +244,25 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
         </Box>
       ) : null}
       <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>
-        Nominated number: {p.pullNominatedNumber?.captured ? p.pullNominatedNumber.masked : 'not captured'} (stored encrypted; never shown) · config version {p.pullRegistration?.configVersion ?? '—'} · attempted {when(p.pullRegistration?.attemptedAt)}
+        Pull nominated MSISDN: {p.pullNominatedNumber?.captured ? p.pullNominatedNumber.masked : 'not captured'} (stored encrypted; shown masked) · config version {p.pullRegistration?.configVersion ?? '—'} · attempted {when(p.pullRegistration?.attemptedAt)}
       </Typography>
       {actions.canSetPullNumber ? (
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 0.75 }}>
           <TextField
-            size="small" label="Nominated Safaricom number" value={pullNumber} type="password" autoComplete="off"
+            size="small" label="Nominated Safaricom MSISDN (Pull only)" value={pullNumber} type="password" autoComplete="off"
             onChange={(e) => setPullNumber(e.target.value)} placeholder="07XXXXXXXX"
             error={Boolean(pullNumber) && !isPlausibleKenyanMsisdn(pullNumber)}
-            helperText="The MSISDN on the shortcode's Safaricom KYC details."
+            helperText="The Safaricom KYC-linked phone number for this organization ShortCode. Sent only in the one-time Pull registration request. It is not the Till number or payer phone; C2B notifications and Pull history queries use the ShortCode."
           />
           <Button size="small" variant="outlined" disabled={!isPlausibleKenyanMsisdn(pullNumber) || act.isPending}
-            onClick={() => { const n = pullNumber; setPullNumber(''); run('Nominated number saved (masked).', () => platformApi.clients.setMpesaPullNumber(clientId, profile.id, n)); }}>
+            onClick={() => { const n = pullNumber; setPullNumber(''); run('Pull nominated MSISDN saved (masked).', () => platformApi.clients.setMpesaPullNumber(clientId, profile.id, n)); }}>
             Save number
           </Button>
         </Stack>
       ) : null}
       {!actions.pullEligible ? (
         <Alert severity="info" sx={{ mt: 0.75 }}>
-          Pull registration is disabled for this merchant type: no official provider evidence or controlled sandbox observation confirms eligibility yet. The number can be saved, but nothing is sent to Safaricom.
+          Pull registration is disabled for this merchant type because eligibility is not verified. You may save the organization's nominated MSISDN for later, but saving it does not call Safaricom. C2B notifications do not use this number.
         </Alert>
       ) : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 0.75 }} flexWrap="wrap" useFlexGap>
