@@ -44,6 +44,7 @@ const STATUS_COLOR: Record<SmsMessage['status'], 'success' | 'error' | 'warning'
   unknown: 'warning',
   queued: 'default',
   processing: 'default',
+  cancelled: 'default',
 };
 
 const GROUP_LABELS: Record<SmsRecipientGroup, string> = {
@@ -93,9 +94,17 @@ export default function SmsPage() {
       key: 'message',
       header: 'Message',
       render: (m) => (
-        <Typography variant="body2" sx={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {m.message}
-        </Typography>
+        <Box sx={{ maxWidth: 520, minWidth: 240 }}>
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+            {m.message}
+          </Typography>
+          {m.dispatchMode === 'SUPPRESSED' ? (
+            <Typography variant="caption" color="warning.main" component="div">Saved for review · sending disabled</Typography>
+          ) : null}
+          {m.failureReason && (m.status === 'failed' || m.status === 'unknown') ? (
+            <Typography variant="caption" color="error.main" component="div">{m.failureReason}</Typography>
+          ) : null}
+        </Box>
       ),
     },
     {
@@ -142,9 +151,15 @@ export default function SmsPage() {
                   <Typography fontWeight={600}>{m.phoneNumber || '—'}</Typography>
                   <Chip size="small" label={m.status} color={STATUS_COLOR[m.status] ?? 'default'} variant="outlined" />
                 </Stack>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                   {m.message}
                 </Typography>
+                {m.dispatchMode === 'SUPPRESSED' ? (
+                  <Typography variant="caption" color="warning.main" component="div">Saved for review · sending disabled</Typography>
+                ) : null}
+                {m.failureReason && (m.status === 'failed' || m.status === 'unknown') ? (
+                  <Typography variant="caption" color="error.main" component="div">{m.failureReason}</Typography>
+                ) : null}
               </Card>
             )}
           />

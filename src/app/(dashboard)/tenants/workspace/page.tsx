@@ -175,11 +175,17 @@ export default function TenantWorkspacePage() {
               {tenant.smsHistory!.map((m) => (
                 <Box key={m._id}>
                   <Chip size="small" label={m.status} variant="outlined" />
-                  <Typography variant="body2">
-                    {m.deliveryMode === 'G5_PROTECTED' || m.type === 'g5_onboarding_link'
-                      ? 'M-PESA onboarding notification (private payment link hidden for security).'
-                      : m.message}
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                    {m.message}
                   </Typography>
+                  {m.dispatchMode === 'SUPPRESSED' ? (
+                    <Typography variant="caption" color="warning.main" component="div">Saved for review. SMS sending is disabled; this message was not sent.</Typography>
+                  ) : null}
+                  {m.failureReason && (m.status === 'failed' || m.status === 'unknown') ? (
+                    <Typography variant="caption" color="error.main" component="div">
+                      Delivery {m.status}: {m.failureReason}
+                    </Typography>
+                  ) : null}
                 </Box>
               ))}
             </Stack>
