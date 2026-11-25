@@ -61,3 +61,16 @@ Backend G3/G4 API and policy contract first; then frontend DTO/form/screen align
 - Do not expose or imply a combined deposit deduction/refund/move-out workflow. After a deposit payment, a requirement change is a conflict; do not offer adjustment behavior. Do not invent payment-before-requirement or overpayment rules.
 - A CK/SK form/API correction does not mean Co-op is operational. Render only backend-confirmed safe capabilities; keep unverified resources unavailable until resource-specific grant/scope, token lifecycle, production access and verification are established.
 - The frontend branch must not run or trigger production migrations. Database index inventory and read-only preflight are separate backend operational checks.
+
+ 
+## Owner decision — show submitted SMS in the M-PESA review queue (25 November 2026)
+
+An authorized reviewer must be able to inspect the exact message the tenant or payer submitted, not just the parser result. Each submission row therefore offers an explicit **View submitted SMS** action.
+
+- Fetch the original text on demand from the authenticated, client/estate-scoped evidence-detail endpoint. Do not place it in the normal list response.
+- Render the exact message with whitespace and line breaks preserved, in a readable, wrapping text surface. Show a clear unavailable state when the original was not retained; never substitute a digest or reconstructed text.
+- The evidence view is read-only. It does not add approve/force-match controls or change Reject / Retry Match rules. A submission remains evidence, not a posted Payment.
+- Close the view and discard the in-memory response immediately. Do not save it to IndexedDB, persistent query storage, browser storage, logs, analytics or offline snapshots. Request the response with no-store semantics.
+- The server authorizes client owners/admins within their scope and Superadmins only with an explicit selected client. Hiding the button is not an authorization boundary.
+
+Acceptance: a reviewer can open an unsupported submission and see the actual submitted text; the general queue response still excludes it; unauthorized or cross-estate reads fail; missing retention is shown honestly; closing the view removes the plaintext from the active client cache.
