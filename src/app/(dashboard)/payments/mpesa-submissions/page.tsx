@@ -4,16 +4,16 @@
 // automatically. Operators can only REJECT with a documented reason or ask the
 // server to RETRY_MATCH. There is no approve / force-match action: the backend
 // does not offer one, and a submission never becomes a payment from this screen.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Select, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Select, Stack, TextField, Typography } from '@mui/material';
 import { Inbox } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import { CardSkeleton } from '@/components/feedback/card-skeleton';
 import { EmptyState } from '@/components/feedback/empty-state';
 import { ErrorState } from '@/components/feedback/error-state';
 import { ProductEntitlementBlocked, isProductNotEntitled } from '@/components/feedback/product-entitlement-blocked';
-import { mpesaCollectionApi, REVIEW_REASON_CODES, type MpesaSubmission, type ReviewAction, type ReviewReasonCode, type SubmissionState } from '@/lib/api/mpesa-collection';
+import { mpesaCollectionApi, REVIEW_REASON_CODES, type MpesaSubmission, type MpesaSubmissionEvidence, type ReviewAction, type ReviewReasonCode, type SubmissionState } from '@/lib/api/mpesa-collection';
 import { tenantsApi } from '@/lib/api/tenants';
 import { ApiError } from '@/lib/api/client';
 import { formatMaybeCents } from '@/lib/formatting/currency';
@@ -116,7 +116,8 @@ export default function MpesaSubmissionsPage() {
 }
 
 function SubmissionCard({ submission: s, tenant, estate, reviewable }: { submission: MpesaSubmission; tenant?: string; estate?: string; reviewable: boolean }) {
-  const [open, setOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   return (
     <Card sx={{ p: 2 }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
@@ -133,10 +134,108 @@ function SubmissionCard({ submission: s, tenant, estate, reviewable }: { submiss
           </Typography>
           {s.stateReason ? <Typography variant="caption" color="text.secondary">Reason: {s.stateReason}</Typography> : null}
         </div>
-        {reviewable ? <Button variant="outlined" size="small" onClick={() => setOpen(true)}>Review</Button> : null}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+          <Button variant="outlined" size="small" onClick={() => setEvidenceOpen(true)}>View submitted SMS</Button>
+          {reviewable ? <Button variant="outlined" size="small" onClick={() => setReviewOpen(true)}>Review</Button> : null}
+        </Stack>
       </Stack>
-      {open ? <ResolveDialog submission={s} onClose={() => setOpen(false)} /> : null}
+      {evidenceOpen ? <SubmissionEvidenceDialog submission={s} tenant={tenant} onClose={() => setEvidenceOpen(false)} /> : null}
+      {reviewOpen ? <ResolveDialog submission={s} onClose={() => setReviewOpen(false)} /> : null}
     </Card>
+  );
+}
+
+function SubmissionEvidenceDialog({ submission, tenant, onClose }: { submission: MpesaSubmission; tenant?: string; onClose: () => void }) {
+  const [evidence, setEvidence] = useState<MpesaSubmissionEvidence | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    setEvidence(null);
+    setError(null);
+    setLoading(true);
+
+    mpesaCollectionApi.submissionEvidence(submission._id, {}, controller.signal)
+      .then((result) => {
+        if (active) setEvidence(result);
+      })
+      .catch((err: unknown) => {
+        if (!active || controller.signal.aborted) return;
+        setError(err instanceof ApiError ? err.message : 'Unable to load the submitted message.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+      setEvidence(null);
+    };
+  }, [submission._id]);
+
+  const hasMessage = evidence?.available === true && evidence.message !== null;
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle>Submitted SMS evidence</DialogTitle>
+      <DialogContent>
+        <Stack spacing={1.5} sx={{ mt: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            {tenant ?? 'Unknown tenant'} · {dateFormat(submission.createdAt, 'DD MMM YYYY, HH:mm')}
+          </Typography>
+          <Alert severity="info">
+            This is the original submitted text, not proof of payment. Viewing it does not approve or post a receipt.
+          </Alert>
+          {loading ? <Typography variant="body2" color="text.secondary">Loading the retained message…</Typography> : null}
+          {error ? <Alert severity="error">{error}</Alert> : null}
+          {!loading && !error && evidence && !hasMessage ? (
+            <Alert severity="warning">
+              {evidence.unavailableReason === 'NOT_RETAINED'
+                ? 'The original SMS was not retained when it was submitted, so it cannot be displayed or reconstructed.'
+                : 'The original SMS is currently unavailable. No message has been reconstructed from the digest.'}
+            </Alert>
+          ) : null}
+          {hasMessage && evidence ? (
+            <>
+              <Stack spacing={0.5}>
+                <Typography variant="body2">Parser: {evidence.parserVersion ?? 'Unknown'} · Template: {evidence.template ?? 'Not recognized'}</Typography>
+                {evidence.parseErrors.length ? (
+                  <Typography variant="body2" color="text.secondary">Parser result: {evidence.parseErrors.join(', ')}</Typography>
+                ) : null}
+                {evidence.stateReason ? <Typography variant="body2" color="text.secondary">Review state: {evidence.stateReason}</Typography> : null}
+              </Stack>
+              <Box
+                component="pre"
+                sx={{
+                  m: 0,
+                  p: 2,
+                  border: 1,
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  bgcolor: 'action.hover',
+                  fontFamily: 'monospace',
+                  fontSize: '0.875rem',
+                  lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'break-word',
+                  maxHeight: '55vh',
+                  overflowY: 'auto',
+                }}
+              >
+                {evidence.message}
+              </Box>
+            </>
+          ) : null}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

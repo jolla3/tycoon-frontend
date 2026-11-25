@@ -95,6 +95,7 @@ type RequestOptions = {
   body?: unknown;
   query?: Record<string, QueryValue>;
   signal?: AbortSignal;
+  cache?: RequestCache;
   /**
    * Typed extra headers. Only headers on the allowlist below may be set, so a
    * caller cannot override Content-Type, Accept or X-CSRF-Token (CSRF stays
@@ -172,7 +173,7 @@ interface BackendEnvelope<T> {
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, query, signal, idempotencyKey } = options;
+  const { method = 'GET', body, query, signal, idempotencyKey, cache } = options;
 
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -202,6 +203,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       credentials: 'include', // sends the HttpOnly session cookie — never a manual Authorization header
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal,
+      ...(cache ? { cache } : {}),
     });
     rememberCsrfFromResponse(response);
   } catch {
@@ -273,6 +275,9 @@ export async function publicRequest<T>(path: string, body: unknown, signal?: Abo
 
 export const apiClient = {
   get: <T>(path: string, query?: RequestOptions['query'], signal?: AbortSignal) => apiRequest<T>(path, { method: 'GET', query, signal }),
+  /** Authenticated sensitive GET. Bypasses the browser HTTP cache and forwards cancellation. */
+  getNoStore: <T>(path: string, query?: RequestOptions['query'], signal?: AbortSignal) =>
+    apiRequest<T>(path, { method: 'GET', query, signal, cache: 'no-store' }),
   post: <T>(path: string, body?: unknown, signal?: AbortSignal, extra?: Pick<RequestOptions, 'idempotencyKey'>) =>
     apiRequest<T>(path, { method: 'POST', body, signal, ...extra }),
   patch: <T>(path: string, body?: unknown, signal?: AbortSignal) => apiRequest<T>(path, { method: 'PATCH', body, signal }),

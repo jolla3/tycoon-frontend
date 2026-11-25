@@ -34,6 +34,20 @@ export const REVIEW_REASON_CODES = ['DUPLICATE', 'WRONG_TENANT', 'NOT_A_RENT_PAY
 export type ReviewReasonCode = (typeof REVIEW_REASON_CODES)[number];
 export type ReviewAction = 'REJECT' | 'RETRY_MATCH';
 
+export interface MpesaSubmissionEvidence {
+  id: string;
+  available: boolean;
+  unavailableReason: 'NOT_RETAINED' | 'UNAVAILABLE' | null;
+  /** Original user-submitted message. Returned only by the audited detail endpoint. */
+  message: string | null;
+  state: SubmissionState;
+  stateReason: string | null;
+  parserVersion: string | null;
+  template: string | null;
+  parseErrors: string[];
+  createdAt: string;
+}
+
 export interface MpesaSubmission {
   _id: string;
   tenantId: string;
@@ -147,6 +161,9 @@ export const mpesaCollectionApi = {
       `/mpesa-collection/tenants/${tenantId}/references${scope.clientId ? `?clientId=${encodeURIComponent(scope.clientId)}` : ''}`, body),
   listSubmissions: (query: { state?: SubmissionState; limit?: number; estateId?: string } & Scope = {}) =>
     apiClient.get<{ submissions: MpesaSubmission[] }>('/mpesa-collection/submissions', q(query, { state: query.state, limit: query.limit, estateId: query.estateId })),
+  /** Audited, no-store read. The original SMS is never included in the list DTO. */
+  submissionEvidence: (id: string, scope: Scope = {}, signal?: AbortSignal) =>
+    apiClient.getNoStore<MpesaSubmissionEvidence>(`/mpesa-collection/submissions/${id}/evidence`, q(scope), signal),
   resolveSubmission: (id: string, body: { action: ReviewAction; reasonCode: ReviewReasonCode }, scope: Scope = {}) =>
     apiClient.post<{ id: string; state: SubmissionState }>(`/mpesa-collection/submissions/${id}/resolve${scope.clientId ? `?clientId=${encodeURIComponent(scope.clientId)}` : ''}`, body),
 };
