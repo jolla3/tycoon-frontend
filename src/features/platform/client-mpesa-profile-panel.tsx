@@ -262,7 +262,7 @@ export function ClientMpesaProfilePanel({ clientId, profile }: { clientId: strin
       ) : null}
       {!actions.pullEligible ? (
         <Alert severity="info" sx={{ mt: 0.75 }}>
-          Pull registration is disabled for this merchant type because eligibility is not verified. You may save the organization's nominated MSISDN for later, but saving it does not call Safaricom. C2B notifications do not use this number.
+          Pull registration is disabled for this merchant type because eligibility is not verified. You may save the organization’s nominated MSISDN for later, but saving it does not call Safaricom. C2B notifications do not use this number.
         </Alert>
       ) : null}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 0.75 }} flexWrap="wrap" useFlexGap>
