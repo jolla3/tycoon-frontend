@@ -258,7 +258,6 @@ export interface SmsMessage {
   status: 'queued' | 'processing' | 'sent' | 'failed' | 'unknown' | 'cancelled';
   deliveryMode?: 'STANDARD' | 'G5_PROTECTED';
   dispatchMode?: 'ENABLED' | 'SUPPRESSED';
-  dispatchMode?: 'ENABLED' | 'SUPPRESSED';
   createdAt: string;
   sentAt?: string;
   failureReason?: string | null;
