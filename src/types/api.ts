@@ -77,26 +77,73 @@ export type PaymentOrigin = 'BANK' | 'MANUAL' | 'MPESA' | 'CREDIT';
 /** REVERSED payments are retained for audit but are NOT collected money. */
 export type PaymentStatus = 'CONFIRMED' | 'REVERSED';
 
+export interface PaymentAllocationBreakdown {
+  paymentId: string | null;
+  fundingSource: 'RECEIPT' | 'EXISTING_CREDIT';
+  paymentOrigin: PaymentOrigin | null;
+  tenancyId: string | null;
+  houseId: string | null;
+  houseNumber: string | null;
+  rentChargeId: string | null;
+  amountCents: number;
+  chargeType: string;
+  period: string;
+  destinationVerified: boolean;
+}
+
+export interface PaymentCurrentAccountPosition {
+  creditCents: number;
+  outstandingCents: number;
+  netCents: number;
+  asOf: string;
+  balanceScope: 'CURRENT';
+}
+
 export interface Payment {
   _id: string;
   clientId: string;
   estateId: string;
+  estateName?: string | null;
   houseId: string;
   tenantId?: string | null;
   tenancyId?: string | null;
   bankTransactionId?: string;
+  manualReceiptId?: string | null;
   amountCents: number;
+  grossReceivedCents?: number;
   paymentDate: string;
-  paymentReference?: string;
+  paymentReference?: string | null;
   period: string;
+  tenderMethod?: string | null;
   origin: PaymentOrigin;
   status: PaymentStatus;
+  provider?: string | null;
+  providerTransactionId?: string | null;
+  businessShortCode?: string | null;
   /** Resolved server-side for display; null when the relation is missing/deleted. */
   tenantName?: string | null;
   houseNumber?: string | null;
   /** False for CREDIT-origin rows: they apply existing credit and are not money received. */
   isMoneyReceived?: boolean;
   listKind?: 'payment' | 'manual_receipt';
+  receiptAppliedCents?: number | null;
+  creditAppliedCents?: number | null;
+  newCreditCents?: number | null;
+  creditBeforeCents?: number | null;
+  creditRemainingCents?: number | null;
+  creditAfterCents?: number | null;
+  receiptReconciliation?: string;
+  creditReconciliation?: string;
+  settlementIdentity?: string;
+  sourceTenancyStatus?: string;
+  sourceAmountConsistent?: boolean;
+  legacy?: boolean;
+  paymentIds?: string[];
+  creditPaymentIds?: string[];
+  creditMovementIds?: string[];
+  allocationBreakdown?: PaymentAllocationBreakdown[];
+  /** Current tenant account position at read time, not a historical balance snapshot. */
+  currentAccountPosition?: PaymentCurrentAccountPosition | null;
 }
 
 /** Public bank account DTO from bank.service toPublicBankAccount — no ciphertext/hashes. */
@@ -208,10 +255,13 @@ export interface SmsMessage {
   phoneNumber: string;
   message: string;
   type: string;
-  status: 'queued' | 'processing' | 'sent' | 'failed' | 'unknown';
+  status: 'queued' | 'processing' | 'sent' | 'failed' | 'unknown' | 'cancelled';
+  deliveryMode?: 'STANDARD' | 'G5_PROTECTED';
+  dispatchMode?: 'ENABLED' | 'SUPPRESSED';
+  dispatchMode?: 'ENABLED' | 'SUPPRESSED';
   createdAt: string;
   sentAt?: string;
-  failureReason?: string;
+  failureReason?: string | null;
 }
 
 export interface StaffUser {

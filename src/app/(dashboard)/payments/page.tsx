@@ -4,7 +4,7 @@ import { useEffect, useReducer, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card, Pagination, Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
-  Stack, TextField, Select, MenuItem, Alert, Autocomplete, useMediaQuery, useTheme,
+  Stack, TextField, Select, MenuItem, Alert, Autocomplete, useMediaQuery, useTheme, Divider,
 } from '@mui/material';
 import { Receipt, Plus } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
@@ -36,6 +36,7 @@ export default function PaymentsPage() {
   const canManage = user ? permissions.canManageHouses(user.role) : false;
   const [page, setPage] = useState(1);
   const [recordOpen, setRecordOpen] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [estateScope, setEstateScope] = useState<string | null>(null);
   const { estates } = useVisibleEstates();
@@ -61,14 +62,31 @@ export default function PaymentsPage() {
     { key: 'status', header: 'Status', render: (p) => <PaymentStatusChip status={p.status} /> },
     {
       key: 'amount',
-      header: 'Gross amount',
+      header: 'Gross received',
       align: 'right',
       render: (p) => (
         <span style={p.status === 'REVERSED' ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>
-          {formatCents(p.amountCents)}
+          {formatCents(p.grossReceivedCents ?? p.amountCents)}
           {p.isMoneyReceived === false ? ' (credit applied)' : ''}
         </span>
       ),
+    },
+    {
+      key: 'applied',
+      header: 'Applied to rent',
+      align: 'right',
+      render: (p) => p.receiptAppliedCents == null ? '—' : formatCents(p.receiptAppliedCents),
+    },
+    {
+      key: 'credit',
+      header: 'New credit',
+      align: 'right',
+      render: (p) => p.newCreditCents == null ? '—' : formatCents(p.newCreditCents),
+    },
+    {
+      key: 'details',
+      header: 'Details',
+      render: (p) => <Button size="small" variant="text" onClick={() => setSelectedPayment(p)}>View</Button>,
     },
   ];
 
@@ -135,6 +153,11 @@ export default function PaymentsPage() {
                 <br />
                 {p.paymentReference ?? 'No reference'} · {dateFormat(p.paymentDate, 'DD MMM YYYY')}
               </Typography>
+              <Typography variant="caption" color="text.secondary" component="div">
+                Applied to rent: {p.receiptAppliedCents == null ? 'Not available' : formatCents(p.receiptAppliedCents)}
+                {' · '}New credit: {p.newCreditCents == null ? 'Not available' : formatCents(p.newCreditCents)}
+              </Typography>
+              <Button size="small" sx={{ mt: 1 }} onClick={() => setSelectedPayment(p)}>View payment details</Button>
             </Card>
           )}
         />
@@ -144,6 +167,65 @@ export default function PaymentsPage() {
           </Box>
         )}
       </Card>
+      <Dialog open={Boolean(selectedPayment)} onClose={() => setSelectedPayment(null)} fullWidth maxWidth="md">
+        <DialogTitle>Payment details</DialogTitle>
+        <DialogContent dividers>
+          {selectedPayment ? (
+            <Stack spacing={2}>
+              <Box>
+                <Typography variant="h6">{formatCents(selectedPayment.grossReceivedCents ?? selectedPayment.amountCents)} received</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedPayment.tenantName ?? 'Unknown tenant'} · House {selectedPayment.houseNumber ?? '—'} · {dateFormat(selectedPayment.paymentDate, 'DD MMM YYYY')}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedPayment.origin} · {selectedPayment.tenderMethod ?? 'Tender not recorded'} · {selectedPayment.paymentReference || 'No receipt reference'}
+                </Typography>
+              </Box>
+              <Divider />
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
+                <Box><Typography variant="caption" color="text.secondary">Gross received</Typography><Typography fontWeight={600}>{formatCents(selectedPayment.grossReceivedCents ?? selectedPayment.amountCents)}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">This receipt applied to rent</Typography><Typography fontWeight={600}>{selectedPayment.receiptAppliedCents == null ? '—' : formatCents(selectedPayment.receiptAppliedCents)}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">Existing credit applied</Typography><Typography fontWeight={600}>{selectedPayment.creditAppliedCents == null ? '—' : formatCents(selectedPayment.creditAppliedCents)}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">New credit carried forward</Typography><Typography fontWeight={600}>{selectedPayment.newCreditCents == null ? '—' : formatCents(selectedPayment.newCreditCents)}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">Credit before receipt</Typography><Typography fontWeight={600}>{selectedPayment.creditBeforeCents == null ? '—' : formatCents(selectedPayment.creditBeforeCents)}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">Credit remaining after settlement</Typography><Typography fontWeight={600}>{selectedPayment.creditRemainingCents == null ? '—' : formatCents(selectedPayment.creditRemainingCents)}</Typography></Box>
+                <Box><Typography variant="caption" color="text.secondary">Credit after receipt</Typography><Typography fontWeight={600}>{selectedPayment.creditAfterCents == null ? '—' : formatCents(selectedPayment.creditAfterCents)}</Typography></Box>
+              </Box>
+              <Divider />
+              <Box>
+                <Typography fontWeight={600} sx={{ mb: 1 }}>Rent charges settled</Typography>
+                {(selectedPayment.allocationBreakdown ?? []).length ? (
+                  <Stack spacing={1}>
+                    {selectedPayment.allocationBreakdown!.map((allocation, index) => (
+                      <Box key={`${allocation.rentChargeId ?? allocation.paymentId ?? index}:${allocation.period}:${allocation.chargeType}`} sx={{ p: 1.25, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+                        <Stack direction="row" justifyContent="space-between" spacing={2} alignItems="flex-start">
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography fontWeight={600}>{allocation.chargeType} · {allocation.period}</Typography>
+                            <Typography variant="body2" color="text.secondary">House {allocation.houseNumber ?? '—'} · {allocation.fundingSource === 'EXISTING_CREDIT' ? 'Existing tenant credit' : 'This receipt'}</Typography>
+                            <Typography variant="caption" color="text.secondary">{allocation.destinationVerified ? 'Allocation destination verified' : 'Allocation destination not verified'}</Typography>
+                          </Box>
+                          <Typography fontWeight={600} sx={{ whiteSpace: 'nowrap' }}>{formatCents(allocation.amountCents)}</Typography>
+                        </Stack>
+                      </Box>
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">No rent-charge allocations were recorded for this receipt. Any unallocated amount is shown as new tenant credit above.</Typography>
+                )}
+              </Box>
+              {selectedPayment.currentAccountPosition ? (
+                <Alert severity="info">
+                  Current tenant account position (as of {dateFormat(selectedPayment.currentAccountPosition.asOf, 'DD MMM YYYY, HH:mm')}): credit {formatCents(selectedPayment.currentAccountPosition.creditCents)}, outstanding {formatCents(selectedPayment.currentAccountPosition.outstandingCents)}, net {formatCents(selectedPayment.currentAccountPosition.netCents)}. This is the current position, not a historical balance snapshot at the time of receipt.
+                </Alert>
+              ) : null}
+              <Typography variant="caption" color="text.secondary">
+                Receipt reconciliation: {selectedPayment.receiptReconciliation ?? 'not available'} · Credit reconciliation: {selectedPayment.creditReconciliation ?? 'not available'} · Settlement identity: {selectedPayment.settlementIdentity ?? 'not available'}
+              </Typography>
+            </Stack>
+          ) : null}
+        </DialogContent>
+        <DialogActions><Button onClick={() => setSelectedPayment(null)}>Close</Button></DialogActions>
+      </Dialog>
       {recordOpen && (
         <RecordPaymentDialog
           open={recordOpen}
