@@ -172,14 +172,18 @@ function SubmissionEvidenceDialog({ submission, tenant, onClose }: { submission:
     return () => {
       active = false;
       controller.abort();
-      setEvidence(null);
     };
   }, [submission._id]);
 
   const hasMessage = evidence?.available === true && evidence.message !== null;
+  const closeAndDiscard = () => {
+    setEvidence(null);
+    setError(null);
+    onClose();
+  };
 
   return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+    <Dialog open onClose={closeAndDiscard} fullWidth maxWidth="md">
       <DialogTitle>Submitted SMS evidence</DialogTitle>
       <DialogContent>
         <Stack spacing={1.5} sx={{ mt: 1 }}>
@@ -233,7 +237,7 @@ function SubmissionEvidenceDialog({ submission, tenant, onClose }: { submission:
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={closeAndDiscard}>Close</Button>
       </DialogActions>
     </Dialog>
   );
