@@ -666,3 +666,16 @@ These are owner-provided screen observations. They do not establish callback del
 8. Tests cover each combination above, stale callback-config versions and API error/uncertain states.
 
 This is a frontend product-contract update only. It does not enable provider callbacks, register Pull, change either profile, or authorize G3 posting.
+
+ 
+## Owner decision — show submitted SMS in the M-PESA review queue (25 November 2026)
+
+An authorized reviewer must be able to inspect the exact message the tenant or payer submitted, not just the parser result. Each submission row therefore offers an explicit **View submitted SMS** action.
+
+- Fetch the original text on demand from the authenticated, client/estate-scoped evidence-detail endpoint. Do not place it in the normal list response.
+- Render the exact message with whitespace and line breaks preserved, in a readable, wrapping text surface. Show a clear unavailable state when the original was not retained; never substitute a digest or reconstructed text.
+- The evidence view is read-only. It does not add approve/force-match controls or change Reject / Retry Match rules. A submission remains evidence, not a posted Payment.
+- Close the view and discard the in-memory response immediately. Do not save it to IndexedDB, persistent query storage, browser storage, logs, analytics or offline snapshots. Request the response with no-store semantics.
+- The server authorizes client owners/admins within their scope and Superadmins only with an explicit selected client. Hiding the button is not an authorization boundary.
+
+Acceptance: a reviewer can open an unsupported submission and see the actual submitted text; the general queue response still excludes it; unauthorized or cross-estate reads fail; missing retention is shown honestly; closing the view removes the plaintext from the active client cache.
