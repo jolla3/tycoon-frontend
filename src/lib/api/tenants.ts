@@ -102,6 +102,7 @@ export interface TenantDetail extends Tenant {
     status: string;
     type?: string;
     deliveryMode?: 'STANDARD' | 'G5_PROTECTED';
+    failureReason?: string | null;
     createdAt?: string;
     sentAt?: string;
   }>;
