@@ -679,3 +679,58 @@ An authorized reviewer must be able to inspect the exact message the tenant or p
 - The server authorizes client owners/admins within their scope and Superadmins only with an explicit selected client. Hiding the button is not an authorization boundary.
 
 Acceptance: a reviewer can open an unsupported submission and see the actual submitted text; the general queue response still excludes it; unauthorized or cross-estate reads fail; missing retention is shown honestly; closing the view removes the plaintext from the active client cache.
+
+## Owner-approved Reports V1 scope — 26 November 2026
+
+**Status:** Approved product scope; documentation baseline only. This addendum is authoritative where earlier report notes describe a broader or different first release.
+
+### Product outcome
+
+Give estate owners and authorized staff a reliable monthly view of property occupancy, billed obligations, actual collections, outstanding charges, and M-PESA receipt progress. Reports are a read-only presentation of backend-owned records. They are not a second accounting system.
+
+### Reports V1 navigation
+
+The Reports centre has five sections:
+
+1. **Overview** — portfolio totals and selected-period headline measures.
+2. **Revenue & Collections** — billing by charge type, amounts applied to charges, and actual receipts by source.
+3. **Arrears** — open balances with tenant, house, exact tenancy, billing period, due date, and credit context.
+4. **Occupancy** — current occupancy by estate and house type.
+5. **M-PESA Collections** — canonical merchant receipts and a separate count-based view of submitted SMS evidence.
+
+Banking remains in the existing Banking workspace. Reports may show one compact unmatched-bank count on Overview only when BANKING entitlement is confirmed; it must not recreate the Banking report. SMS history remains in the SMS workspace and standalone SMS analytics are not part of V1.
+
+### Functional requirements
+
+- **REP-FR-001 — Shared scope:** Provide one Nairobi billing-period selector and one estate filter. Every Reports section must use the same selected period and estate scope. Without an explicit estate selection, the backend returns only the authenticated user's permitted scope.
+- **REP-FR-002 — Overview:** Show estate, active-house, occupied-house, vacant-house and tenant counts; selected-period billed charges, amount applied to charges and open charge balances; charge-settlement rate; and previous-period open arrears. Missing or unverified figures remain unavailable.
+- **REP-FR-003 — Revenue:** Break billed and applied amounts down by RENT, WATER, ELECTRICITY and OTHER. Distinguish the charge period from the date money was received. Show gross receipt envelopes by source only where the source identity and status are authoritative. Do not calculate gross cash by summing child Payment records.
+- **REP-FR-004 — Revenue labels:** Amounts settled against RentCharge include both cash allocations and application of existing Tenant credit. Label these as applied/settled against charges, not as gross cash received. Show credit applications separately. A CREDIT-origin Payment is not new cash.
+- **REP-FR-005 — Arrears:** Show open charges across periods with exact Tenancy identity, saved due date, amount due, amount applied, and remaining balance. Distinguish overdue charges from charges not yet due using the saved due date and Nairobi calendar date. The list must be server-paginated; silently displaying only the first 100 records is not acceptable.
+- **REP-FR-006 — Credit context:** Show available Tenant credit once at its Tenant-plus-Estate account scope. Do not copy the same account credit onto every tenancy row or move credit across clients or estates. Do not attribute a former tenancy's debt to the current occupant. If historical obligation coverage is unverified, show known open charges and credit separately and do not claim a verified net arrears figure.
+- **REP-FR-007 — Occupancy:** Show current occupied/vacant houses by estate and house type. Use active House records and authoritative ACTIVE Tenancy relationships; count distinct tenants rather than counting multiple Tenancies as multiple people. Unclassified houses remain visible as an explicit group.
+- **REP-FR-008 — M-PESA receipts:** Show canonical provider-observed receipt totals and the mutually exclusive receipt states POSTED, ATTRIBUTED, UNALLOCATED and QUARANTINED, plus the independent verification breakdown. Only POSTED receipts have become G3 rent payments. Do not add Payment child amounts to the canonical receipt amount.
+- **REP-FR-009 — M-PESA SMS evidence:** Show counts by submission state (including UNSUPPORTED, UNMATCHED, CONFLICTING, MANUAL_REVIEW, POSTED and REJECTED). Submitted or parsed amountCents is an unverified claim, not money received; it must not be added to receipt or collection totals.
+- **REP-FR-010 — Entitlements and isolation:** M-PESA report data requires the MPESA product entitlement. Banking-only figures require BANKING entitlement. Backend clientContext and estateFilter are the authorization boundary; browser filtering is presentation only.
+- **REP-FR-011 — Period semantics:** V1 uses the existing monthly YYYY-MM period in Africa/Nairobi. M-PESA receipt windows use transactionAt; SMS evidence windows use submission createdAt. The UI must identify these different date meanings. Custom date ranges are deferred.
+- **REP-FR-012 — Traceability:** Summary figures link to the existing Transactions, M-PESA review, tenant or estate workspaces where the underlying records can be inspected. No report may imply that an SMS claim or unallocated receipt is rent paid.
+
+### Explicitly deferred
+
+Expenses, profit-and-loss, cash-flow statements, budgeting, forecasting, tenant-turnover analytics, advanced arrears aging buckets, year-over-year analysis, custom date ranges, CSV/Excel/PDF exports, dedicated SMS analytics, and a detailed Banking report inside Reports. Expense reporting requires an authoritative expense register first. None of these is a V1 blocker.
+
+### Acceptance criteria
+
+- All five sections share the same period and estate scope; changing the filter invalidates/refetches all affected queries.
+- Estate-restricted users cannot retrieve or aggregate records outside their server-enforced estate scope.
+- Gross receipts, charge allocations, credit applications and outstanding obligations are separately labelled and reconcile to their respective source records.
+- CREDIT-origin applications never increase gross cash received.
+- One source receipt that creates several Payment children is counted once in gross receipt totals.
+- Reversed Payments are not included as confirmed applied amounts.
+- Credit is presented at Tenant-plus-Estate account level and is never assigned to a different tenant or estate.
+- Unverified historical coverage is visible; an unknown net balance is not rendered as zero or described as fully verified.
+- Arrears pagination can retrieve records beyond 100 without omissions or duplicates.
+- M-PESA receipt state buckets reconcile exactly to providerObserved; verification is shown as a second view of the same receipts, not additive money.
+- SMS submission counts remain separate from provider receipt counts and financial totals.
+- Clients without MPESA entitlement do not see or request M-PESA report data; Banking details remain in the Banking workspace.
+- No implementation or runtime verification is implied by this approved product scope.

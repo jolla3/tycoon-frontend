@@ -1,5 +1,16 @@
 # Tycoon Estates frontend — short architecture handoff
 
+## Reports V1 handoff — 26 November 2026 (owner-approved)
+
+- **Scope:** Overview, Revenue & Collections, Arrears, Occupancy, M-PESA Collections.
+- **Filters:** one Nairobi monthly period and one server-enforced estate filter across all five sections.
+- **Financial truth:** distinguish gross receipt envelopes, PaymentAllocation amounts, CREDIT applications and open RentCharge balances. Never count Payment children as another copy of the source receipt.
+- **Arrears:** exact Tenancy context, saved due dates, overdue/not-yet-due, tenant credit shown once at Tenant+Estate scope, and server pagination beyond 100.
+- **M-PESA:** reuse existing GET /mpesa-transactions/summary and the existing mpesaTransactionsApi / summary-view helpers. Backend addition required: GET /mpesa-collection/submissions/summary for evidence-state counts only.
+- **Defer:** Banking detail (stays in Banking), SMS analytics (stays in SMS), expenses/P&L, forecasting, advanced aging, custom date ranges and exports.
+- **Implementation contracts:** PRD.md and architecture.md Reports V1 addenda; paired backend contracts are in tycoon-estates-backend/docs/REPORTS_V1_PRD.md and docs/REPORTS_V1_ARCHITECTURE.md.
+- **Documentation-only branch:** docs/reports-v1-20261126. No application code changed by this planning update.
+
 ## Current M-PESA frontend contract — 23 November 2026
 
 - C2B is the primary collection path; Pull is optional recovery. Pull UNKNOWN/NOT_ENABLED must never block C2B readiness.

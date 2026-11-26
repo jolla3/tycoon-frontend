@@ -695,3 +695,54 @@ An authorized reviewer must be able to inspect the exact message the tenant or p
 - The server authorizes client owners/admins within their scope and Superadmins only with an explicit selected client. Hiding the button is not an authorization boundary.
 
 Acceptance: a reviewer can open an unsupported submission and see the actual submitted text; the general queue response still excludes it; unauthorized or cross-estate reads fail; missing retention is shown honestly; closing the view removes the plaintext from the active client cache.
+
+## Reports V1 implementation architecture — 26 November 2026
+
+**Authority:** Paired with the backend documents at docs/REPORTS_V1_PRD.md and docs/REPORTS_V1_ARCHITECTURE.md. Backend financial records and scope decisions are authoritative.
+
+### Page composition and query state
+
+- Keep the existing Reports route and design system. Replace the current Revenue / Arrears / Occupancy / Banking-SMS tab set with Overview / Revenue & Collections / Arrears / Occupancy / M-PESA Collections.
+- Keep the shared monthly PeriodSelector. Add an estate selector whose value is sent to the backend; do not filter only the arrears array in React.
+- Query keys include authenticated identity, period, estateId and pagination/filter state. Cached reports must continue to use the existing freshness/stale indicators. Do not persist sensitive M-PESA submission text in report caches.
+- The Overview may show a single unmatched-bank count only after a successful subscription response confirms BANKING. Do not include detailed bank credits/debits or SMS activity reports here.
+
+### Backend API contracts consumed
+
+1. GET /reports/management with period=YYYY-MM and optional estateId supplies portfolio, charge and occupancy aggregates. The estateId query is checked by clientContext, which supplies the enforced req.estateFilter.
+2. GET /reports/arrears supplies a paginated charge-level list, with exact tenancyId, saved dueDate, tenant/house identifiers, charge type, due/paid/balance and overdue classification. The frontend must use the returned page metadata rather than slice an unbounded array.
+3. GET /mpesa-transactions/summary is already implemented and already has a frontend API wrapper plus periodWindow and summaryReconciles helpers. Reuse them. Map the selected Nairobi month to inclusive UTC instants and pass the same estate scope. Do not create a second receipt summary endpoint.
+4. GET /mpesa-collection/submissions/summary is a required backend addition. It returns state counts only (no submitted text and no claim presented as cash); the month window is based on submission createdAt.
+
+### Financial semantics in the UI
+
+- RentCharge amounts are charge-period measures. The current amountPaid/paid projection reflects amounts applied to charges and can include cash and CREDIT applications. Label this as applied/settled, not gross cash collected.
+- Actual gross receipts are source-envelope measures. Backend aggregates ManualReceipt, posted BankTransaction CREDIT records and posted MpesaTransaction receipts once per source identity. Payment child rows and PaymentAllocation are allocation destinations, not additional gross receipts.
+- PaymentAllocation and Payment origin may be used to separate cash-applied amounts from CREDIT-applied amounts. CREDIT is never included as new cash.
+- Show gross open charges and Tenant credit separately. Tenant credit is scoped to {clientId, estateId, tenantId}; it is not a house- or tenancy-level amount to repeat on every arrears row. Only show a net account position when backend completeness/coverage explicitly permits it.
+- The M-PESA receipt summary's providerObserved and mutually exclusive states are one financial lens. Its verification buckets are a second lens over the same rows. POSTED is the only receipt state described as having become a G3 rent payment. Never add the linked Payment children or creditEarnedCents to providerObserved again.
+- SMS submission summaries are counts of submitted evidence states. amountCents from a submission is an unverified claim and must never be included in collection figures.
+
+### Scope and privacy
+
+- Every report request goes through the shared authenticated API client and the existing cookie/CSRF behavior.
+- The backend derives client identity from the session and validates requested estateId against the user's allowed estateIds. A local estate filter is not authorization.
+- The M-PESA summary is requested only after MPESA entitlement is confirmed. The backend still enforces requireProduct('MPESA').
+- Unallocated canonical receipts are visible only in the client-wide review scope; the backend's existing receiptScopeClause limits estate-restricted users to exact allocated/attributed estate records.
+- Never fetch or render original submitted SMS text inside Reports. That remains an explicit, audited, no-store evidence-detail action in the review queue.
+
+### Presentation and error rules
+
+- Use existing maybe-formatters: null, missing, unsafe or unverified values render Not available; verified zero renders zero.
+- Use the backend's reconciled receipt buckets. If state counts or amounts do not equal providerObserved, hide the breakdown and show an explicit data-integrity error.
+- Do not calculate finance rules, tenancy attribution, merchant matching or credit allocation in the browser.
+- Maintain responsive layouts and accessible table pagination/filter controls. No new design system, export subsystem or offline financial-write behavior is introduced.
+
+### Implementation sequence
+
+1. Update API DTOs and estate/period query keys.
+2. Update backend management aggregates and add the paginated arrears contract; remove the unbounded arrears rows from the management bundle.
+3. Add the count-only M-PESA submission summary endpoint; reuse the existing canonical receipt summary endpoint and frontend helpers.
+4. Build the five Reports sections and their shared filters.
+5. Verify accounting invariants, client/estate isolation, entitlement behavior, pagination beyond 100, stale-cache behavior and narrow viewport rendering.
+6. Record test results exactly. No provider certification, production deployment or live data correctness is implied by UI tests.
