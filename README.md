@@ -1,220 +1,241 @@
-# Property Management Frontend
+# Tycoon Estates Frontend
 
-Production Next.js frontend for the existing multi-tenant property/rent
-management backend (Express + MongoDB, cookie-authenticated, `/api/v1`).
-This README reflects the **actual current state of this repository** —
-sections are explicitly labeled `Implemented`, `Backend blocker`, or
-`Not yet implemented`. Nothing here is aspirational.
+The web application for the Tycoon Estates property-management platform. This repository contains the browser-facing product: the authenticated estate-management workspace, the platform Superadmin console, and a small set of public pages.
+
+The frontend is designed for property owners, administrators and authorized staff who manage estates, houses, tenancies, billing and payment operations. It is **not a tenant self-service portal**. The public M-PESA page is a narrow submission page for a tenant or payer to send an M-PESA confirmation message using a personal link; it does not display rent balances or confirm that a payment has been posted.
+
+The visible product name is centralized in `src/config/app.ts`. It currently displays **Property Management**; the repository and companion API are part of the Tycoon Estates project.
+
+**Companion API:** [jolla3/tycoon-estates-backend](https://github.com/jolla3/tycoon-estates-backend)
+
+---
+
+## Product areas
+
+### Public pages
+
+| Area | Purpose |
+|---|---|
+| Landing page | Public product entry page |
+| Login | Authenticated user sign-in |
+| Payment-message submission (`/pay`) | Accepts an M-PESA confirmation message through a personal link; submission is evidence awaiting review, not payment confirmation |
+| Privacy and Terms | Public policy pages |
+
+The public payment-message page intentionally has no tenant login, tenant dashboard, balance display or payment-posting controls.
+
+### Estate workspace
+
+The authenticated workspace contains the following product areas:
+
+| Area | Purpose |
+|---|---|
+| Dashboard | Portfolio and rent-management overview |
+| Estates | Estate administration |
+| House Types | House categories and configured billing plans |
+| Houses | House inventory and occupancy |
+| Tenants | Tenant records and tenancy-related workflows |
+| Payments | Payment records and related actions exposed by the API |
+| Transactions | Incoming transaction history and review workflows |
+| Banking | Bank accounts, connections and statement/transaction views exposed by the backend |
+| SMS | Tenant messaging, campaigns and message history |
+| Reports | Operational reporting using the current reporting API |
+| Staff | Client staff administration |
+| Profile | Current user profile and password management |
+| Settings | Current placeholder where no corresponding settings capability is exposed by the backend |
+
+### Platform control plane
+
+The separate `/platform` area provides Superadmin-facing screens for platform operations, including:
+
+- Clients and client users
+- Subscriptions and entitlements
+- Integrations
+- Audit history
+- Platform health
+
+The UI only presents actions supported by the backend API. Hiding a control in the browser is not an authorization boundary; backend middleware remains authoritative.
+
+---
 
 ## Technology stack
 
-Next.js 14 (App Router) · TypeScript (strict) · MUI (theme + `sx`) ·
-TanStack Query · IndexedDB via `idb` · Lucide React (icons) · Motion
-(animation) · Recharts (charts) · React Three Fiber / Three.js (landing hero only).
+- **Next.js 14.2 / App Router**
+- **React 18**
+- **TypeScript** with strict compiler settings
+- **MUI 6** for components, theme and layout
+- **TanStack Query 5** for server state and mutations
+- **IndexedDB** through `idb` for approved offline snapshots
+- **Recharts** for charts
+- **Lucide React** for icons
+- **Motion** for interface animation
+- **Three.js / React Three Fiber** for the landing-page visual only
+- **Vitest** for frontend unit tests
 
-No Bootstrap, no Tailwind, no other icon/animation library. `@mui/icons-material`
-was removed — confirmed unused anywhere in the repo (Lucide is the only icon system).
+Use the existing MUI, Lucide and Motion conventions. Do not introduce a second component, icon, styling or animation system without an explicit architecture decision.
 
-## Getting started
+---
+
+## Architecture and integration
+
+### API boundary
+
+All API requests go through the shared client in `src/lib/api/client.ts` and the domain modules under `src/lib/api/`.
+
+- Pages and components should use the domain API modules, not call `fetch()` or Axios directly.
+- The backend API is versioned under `/api/v1`.
+- Authenticated requests include browser-managed cookies and use the centralized CSRF handling.
+- The public M-PESA submission client is deliberately separate: it sends only to the public submission endpoint and omits session credentials and CSRF headers.
+- Keep request/response types aligned with the backend contract. Do not invent frontend-only financial states or calculations.
+
+### Authentication and security
+
+- Authentication uses an **HttpOnly session cookie** managed by the browser.
+- The frontend does not read, store or write session tokens in localStorage, sessionStorage or IndexedDB.
+- Mutating authenticated requests attach the CSRF token through the shared API client.
+- Requests include credentials so the browser can send the session cookie.
+- Financial mutations remain online-only. A client-side success state must follow a successful backend response.
+
+### Server state and offline behavior
+
+- TanStack Query owns remote server state.
+- IndexedDB is used only for explicitly approved cached snapshots. A cached result must be visibly identified as cached/stale and must not be presented as live data.
+- The current offline write queue supports profile updates only.
+- Payment, transaction, deposit and banking mutations must not be queued for later execution while offline.
+- Cache invalidation must continue to respect authenticated identity changes.
+
+### Financial boundaries
+
+- A Tenant and a Tenancy are different identities. Workflows that settle a tenancy-specific amount must use the exact Tenancy context.
+- A provider receipt is not automatically a posted G3 Payment.
+- Payment allocation, tenant credit and a new cash receipt are different financial facts.
+- The frontend displays backend-owned financial decisions; it must not independently authorize posting or derive a more authoritative balance than the API provides.
+- M-PESA SMS evidence is untrusted evidence until the backend completes the applicable verification, attribution and posting gates.
+
+---
+
+## Local development
+
+### Requirements
+
+- Node.js compatible with the repository's Next.js 14 toolchain
+- npm
+- A running [Tycoon Estates backend](https://github.com/jolla3/tycoon-estates-backend), with MongoDB and Redis configured
+
+### Install
 
 ```bash
-npm install
-cp .env.example .env.local   # set NEXT_PUBLIC_API_BASE_URL to your running backend
+npm ci
+```
+
+### Configure the API URL
+
+This repository currently has no committed frontend `.env.example`. Create `.env.local` in the repository root.
+
+For a direct local API connection:
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api/v1
+```
+
+Then run:
+
+```bash
 npm run dev
 ```
 
-**Backend CORS requirement**: because the API client always sends
-`credentials: 'include'`, the backend's CORS middleware must respond with
-`Access-Control-Allow-Origin: <exact frontend origin>` (not `*`) and
-`Access-Control-Allow-Credentials: true` for whatever origin this app runs
-on (e.g. `http://localhost:3000`). If the backend's CORS allow-list doesn't
-include the frontend's dev origin, every request will fail at the browser
-level with a CORS error — this shows up as "Unable to connect to the
-server" in the UI and is a backend configuration issue, not a frontend bug.
+The frontend is normally available at `http://localhost:3000`.
 
-## Verification commands
+#### Optional same-origin API proxy
 
-```bash
-npm run typecheck   # tsc --noEmit
-npm run lint        # next lint
-npm run build       # next build
+The Next.js configuration supports a same-origin rewrite. Use this when you want the browser to call the frontend origin and let the Next.js server proxy API requests:
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=/api/v1
+BACKEND_URL=http://localhost:4000
 ```
 
-All three were actually executed against this repository during
-development — see the conversation history for the real pass/fail results
-at each stage. Do not trust a status claim in a chat response over actually
-re-running these yourself before deploying.
+`BACKEND_URL` is server-side configuration for the rewrite and must be the backend origin without an `/api/v1` suffix. Do not expose backend secrets through `NEXT_PUBLIC_*` variables.
 
-## Authentication
+#### Direct cross-origin API
 
-Cookie-based session auth, matching the backend exactly:
+When the browser calls an absolute backend URL, configure the backend CORS allow-list with the exact frontend origin and credential support. Credentialed requests cannot use `Access-Control-Allow-Origin: *`.
 
-- Every request goes through `src/lib/api/client.ts` with `credentials: 'include'`.
-- No session token is ever read, stored, or written by frontend JS — the
-  session cookie is HttpOnly and the browser handles it entirely.
-- CSRF: the client reads the (non-HttpOnly, by necessity) `csrf-token`
-  cookie and attaches it as `X-CSRF-Token` on every mutating request
-  (POST/PATCH/PUT/DELETE). This is centralized in `client.ts` — no page or
-  feature module constructs a CSRF header itself.
-- `GET /auth/me` (via `SessionProvider`) never throws into render — a
-  failed session check (401, network error, CORS misconfiguration) is
-  always treated as an ordinary "not authenticated / can't tell right now"
-  state, never an application crash.
-- Logout is wrapped in `try/finally`: local session state is cleared and
-  the user is navigated to `/login` even if the server-side logout call
-  itself fails.
-- There is no public signup or forgot/reset-password UI. The backend has a
-  `POST /auth/signup` route, but it creates a brand-new Client + Owner and
-  is a platform-admin operation, not something this frontend exposes.
+---
 
-## Roles
+## Commands
 
-`CLIENT_OWNER`, `CLIENT_ADMIN`, `STAFF`, `SUPER_ADMIN` — as defined by the
-backend's `User` model. `src/lib/permissions/permissions.ts` is the single
-place role → capability mapping lives; it is a **usability layer only**.
-The backend's `authorize()` middleware remains the actual security boundary.
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Start the Next.js development server |
+| `npm run build` | Create a production build |
+| `npm run start` | Serve the production build |
+| `npm run lint` | Run the configured Next.js lint command |
+| `npm run typecheck` | Run TypeScript without emitting files |
+| `npm test` | Run Vitest |
 
-## Estate scoping — Backend blocker
+Run the relevant checks before proposing a deployment. A command existing in `package.json` is not evidence that it has passed on a particular branch or commit.
 
-**This is the most important open issue in the system.** A restricted
-`STAFF` user (one with a non-empty `estateIds` array) can currently receive
-data beyond their assigned estates from several endpoints, because the
-relevant backend services scope by a server-derived `req.estateFilter`
-that (per the code reviewed) doesn't correctly restrict an ambiguous /
-unscoped request for a restricted user. **This cannot be fixed from the
-frontend** — frontend filtering is explicitly not a security boundary. The
-precise backend fix needed: `clientContext` (or equivalent middleware) must
-resolve `req.estateFilter` to the user's own `estateIds` for a restricted
-STAFF user on every relevant route, and reject or narrow — never
-default to "all client estates" — when the request doesn't specify scope.
+---
 
-Until that's fixed, this frontend does the following honestly:
-- Estates page shows an explicit on-screen notice when displaying a
-  device-side-filtered list for a restricted user, stating plainly that
-  the filter is not a security guarantee.
-- `Houses`/`Tenants`/`Transactions`/`Banking` estate-filter dropdowns do
-  **not** send an `estateId` query parameter to the backend at all — a
-  second, previously-undiscovered defect was found where several of these
-  endpoints don't even read that query parameter (confirmed against
-  `house.service.js`, `tenant.service.js`, `transaction.service.js`,
-  `bank.service.js` — all scope exclusively via `req.estateFilter`). Those
-  dropdowns now apply an honest **client-side** narrowing of whatever page
-  of data the server already returned, instead of silently doing nothing
-  while implying server-side scoping.
+## Reports V1 status
 
-## Offline architecture
+The current Reports screen is built on the existing reporting API. The owner-approved Reports V1 scope is documented but **has not yet been implemented as a complete experience**.
 
-- **Cache** (`src/lib/storage/cache.ts` + `src/hooks/use-cached-query.ts`):
-  read-heavy, safe-to-cache queries (currently: Estates list, Houses list,
-  Dashboard KPI summary) write a snapshot to IndexedDB on every successful
-  fetch. If the live fetch fails, the UI falls back to the last snapshot —
-  but always with a visible **Cached** / **Stale** badge
-  (`src/components/data-display/freshness-badge.tsx`), never presented as
-  current. The entire cache is wiped (`cacheInvalidateAll()`) whenever the
-  authenticated identity behind `/auth/me` changes, including logout — so
-  cached data can never leak across users.
-- **Sync queue** (`src/lib/sync/sync-queue.ts`): supports exactly one
-  offline-capable write today — profile update
-  (`src/features/profile/use-update-profile.ts`) — proving the architecture
-  end-to-end without fabricating a second one. Real retry/backoff: items
-  auto-retry up to 5 attempts, then move to a genuine `permanently-failed`
-  terminal state that stops auto-retrying; the "Retry now" control in the
-  connection panel is the only way to reset that state and try again.
-- **Financial mutations stay online-only, always**: transaction assignment
-  and bank connect/sync explicitly check connectivity and refuse to run
-  offline ("You're offline. This action requires a server connection.")
-  rather than queueing. They only ever show success after the backend
-  itself confirms it.
-- **Connectivity state machine** (`src/lib/sync/connectivity.ts`): five
-  real states — `online` / `offline` / `degraded` / `syncing` /
-  `sync-error` — derived from both `navigator.onLine` **and** an actual
-  periodic `GET /health` request, not `navigator.onLine` alone. Surfaced in
-  the topbar via `ConnectionStatus`, with a synchronization detail panel.
+The approved sections are:
 
-## Feature pages
+1. Overview
+2. Revenue & Collections
+3. Arrears
+4. Occupancy
+5. M-PESA Collections
 
-Landing (public, with a React Three Fiber architectural hero + static
-reduced-motion fallback), Login, Dashboard, Estates, Houses (list, search,
-create, edit, detail drawer), Tenants (list, filter, create, edit, detail
-drawer), Payments (read-only), Transactions (list + filters), Unmatched
-Transactions (assignment workflow), Banking (accounts, masked sensitive
-fields, connect, sync, statement retrieval), SMS (send + history), Reports
-(Recharts against real `/reports/*` endpoints), Staff (list, create, edit,
-deactivate), Profile (edit + change password, offline-capable), Settings
-(honest "nothing to configure yet" placeholder — the backend exposes no
-settings capability).
+The reporting implementation must distinguish gross receipts, charge allocations, tenant-credit applications and outstanding charges. M-PESA SMS submissions, canonical provider receipts and posted payments must remain separate. Expense management, profit and loss, forecasting, advanced analytics, PDF exports and standalone SMS analytics are deferred.
 
-## Known contract gaps (backend, documented not faked)
+See the [Reports V1 product requirements](PRD.md), [frontend architecture](architecture.md) and [architecture handoff](architecture-summary.md), including their Reports V1 addenda.
 
-1. `bank.controller.js` returns unmasked `accountNumberEncrypted` /
-   `accountNumberHash` on `GET /bank/accounts`. Never rendered by the
-   frontend, but should be fixed server-side to not send them at all.
-2. Estate scoping for restricted STAFF — see above, the primary blocker.
-3. No notifications endpoint — built as a frontend-only subsystem per spec.
-4. No public house reference field — house detail stays drawer-based, no ID in the URL.
-5. `GET /bank/accounts/:id/statement` returns only `{ stored, reconciled }`
-   counts, not a transaction list — the Statement UI is honest about this
-   and points the user to Transactions to see the actual records.
-6. Transaction `matchStatus` is genuinely only `MATCHED` / `UNMATCHED` in
-   the current backend model — no `PARTIAL` or `MANUAL_REVIEW` state
-   exists to support, despite earlier concept documents mentioning them.
-7. Staff update (`PATCH /users/:id`) only accepts `name`/`phone`/`estateIds`
-   — role is not editable via this endpoint, and the edit form reflects that exactly.
-8. Several list endpoints (`houses`, `tenants`, `transactions`, `bank/accounts`)
-   don't accept an `estateId` query parameter at all — see estate-scoping
-   section above.
+---
 
-## Not yet implemented
+## Repository map
 
-- Forgot/reset password (no backend route exists)
-- Full manual responsive/accessibility pass in a real browser at real
-  viewport sizes (code-level patterns — `useMediaQuery` breakpoints, MUI's
-  built-in dialog/drawer accessibility, labeled fields — have been
-  reviewed, not click-tested)
-- IndexedDB read caching is wired into Estates, Houses, and the Dashboard
-  KPI summary as proof of the pattern — not yet extended to every
-  read-heavy screen (Tenants, Payments, Reports, SMS history, Staff list)
+```text
+src/
+  app/
+    (public)/       Public landing, login, policy and payment-message pages
+    (dashboard)/    Authenticated client workspace
+    (platform)/     Superadmin control plane
+  components/       Shared UI components
+  config/           Centralized application configuration
+  features/         Feature-specific UI and workflows
+  hooks/             Shared React hooks
+  lib/
+    api/             Shared API client and domain API modules
+    permissions/     Frontend capability/role presentation helpers
+    storage/         IndexedDB cache
+    sync/            Connectivity and offline profile-update queue
+  types/             Shared frontend API and domain types
+```
 
-## Reports V1 — approved scope and implementation status
+The exact implementation and directory names on the checked-out branch take precedence over this abbreviated map.
 
-The current Reports page is an operational overview built on the existing
-`/reports/*` API. It is not yet the complete Reports V1 experience.
+---
 
-The approved Reports V1 navigation is:
+## Project documentation
 
-1. **Overview** — portfolio, occupancy, billing and collection indicators.
-2. **Revenue & Collections** — distinguish charges raised, cash received,
-   charge allocations and tenant credit.
-3. **Arrears** — tenancy-aware outstanding charges, due dates, overdue state
-   and credit-aware presentation, without claiming incomplete history is a
-   verified full balance.
-4. **Occupancy** — current occupied/vacant house counts by estate and house
-   type.
-5. **M-PESA Collections** — canonical provider receipts, SMS evidence
-   submissions, attribution and posted G3 payments shown as distinct states.
+| Document | What it covers |
+|---|---|
+| [PRD.md](PRD.md) | Frontend product requirements and cross-domain decisions |
+| [architecture.md](architecture.md) | Detailed frontend architecture and API boundaries |
+| [architecture-summary.md](architecture-summary.md) | Short engineering handoff and current implementation constraints |
+| [Reports V1 backend PRD](https://github.com/jolla3/tycoon-estates-backend/blob/docs/reports-v1-20261126/docs/REPORTS_V1_PRD.md) | Paired backend reporting requirements |
+| [Reports V1 backend architecture](https://github.com/jolla3/tycoon-estates-backend/blob/docs/reports-v1-20261126/docs/REPORTS_V1_ARCHITECTURE.md) | Reporting aggregation, data-source and API contracts |
 
-### Financial reporting boundaries
+---
 
-- A submitted M-PESA SMS is evidence, not a verified receipt or a payment.
-- A canonical provider receipt and its child G3 Payment records must not be
-  counted as separate incoming cash.
-- Charge allocations describe which obligations were settled; they are not
-  additional cash receipts.
-- Applying existing tenant credit is not new cash received.
-- Estate and period filters must apply consistently to every relevant
-  summary and drilldown. Backend authorization and scoping remain the
-  security boundary.
+## Implementation and release discipline
 
-### Reporting specifications
-
-The approved product requirements and architecture are documented in:
-
-- [Reports V1 product requirements](PRD.md)
-- [Frontend architecture](architecture.md)
-- [Architecture summary and implementation handoff](architecture-summary.md)
-
-**Status:** scope and documentation approved; implementation is not implied
-by this README section. Deferred items include expense management, profit
-and loss, forecasting, advanced analytics, PDF exports and standalone SMS
-analytics.
-
+- Treat source code as evidence of what is implemented; a PRD or architecture document may describe approved target behavior that is not implemented yet.
+- Provider registration, technical capability, operational readiness and permission to post financial transactions are separate states.
+- Do not label a bank or M-PESA integration operational merely because its screen or adapter exists.
+- Preserve cookie-session and CSRF behavior. Do not add browser token storage.
+- Keep financial mutations online-only and keep public payment-message submission isolated from authenticated APIs.
+- Verify the matching backend branch and API contract before implementing a frontend feature.
