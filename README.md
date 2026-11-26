@@ -174,3 +174,47 @@ settings capability).
 - IndexedDB read caching is wired into Estates, Houses, and the Dashboard
   KPI summary as proof of the pattern — not yet extended to every
   read-heavy screen (Tenants, Payments, Reports, SMS history, Staff list)
+
+## Reports V1 — approved scope and implementation status
+
+The current Reports page is an operational overview built on the existing
+`/reports/*` API. It is not yet the complete Reports V1 experience.
+
+The approved Reports V1 navigation is:
+
+1. **Overview** — portfolio, occupancy, billing and collection indicators.
+2. **Revenue & Collections** — distinguish charges raised, cash received,
+   charge allocations and tenant credit.
+3. **Arrears** — tenancy-aware outstanding charges, due dates, overdue state
+   and credit-aware presentation, without claiming incomplete history is a
+   verified full balance.
+4. **Occupancy** — current occupied/vacant house counts by estate and house
+   type.
+5. **M-PESA Collections** — canonical provider receipts, SMS evidence
+   submissions, attribution and posted G3 payments shown as distinct states.
+
+### Financial reporting boundaries
+
+- A submitted M-PESA SMS is evidence, not a verified receipt or a payment.
+- A canonical provider receipt and its child G3 Payment records must not be
+  counted as separate incoming cash.
+- Charge allocations describe which obligations were settled; they are not
+  additional cash receipts.
+- Applying existing tenant credit is not new cash received.
+- Estate and period filters must apply consistently to every relevant
+  summary and drilldown. Backend authorization and scoping remain the
+  security boundary.
+
+### Reporting specifications
+
+The approved product requirements and architecture are documented in:
+
+- [Reports V1 product requirements](PRD.md)
+- [Frontend architecture](architecture.md)
+- [Architecture summary and implementation handoff](architecture-summary.md)
+
+**Status:** scope and documentation approved; implementation is not implied
+by this README section. Deferred items include expense management, profit
+and loss, forecasting, advanced analytics, PDF exports and standalone SMS
+analytics.
+
