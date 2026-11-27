@@ -27,14 +27,14 @@ export default function LandingPage() {
         }}
       />
       <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
-      <LandingNav />
-      <HeroSection />
-      <OperationalFlowSection />
-      <CapabilitiesSection />
-      <DataVisibilitySection />
-      <SecuritySection />
-      <CtaSection />
-      <Footer />
+        <LandingNav />
+        <HeroSection />
+        <OperationalFlowSection />
+        <CapabilitiesSection />
+        <DataVisibilitySection />
+        <SecuritySection />
+        <CtaSection />
+        <Footer />
       </Box>
     </>
   );

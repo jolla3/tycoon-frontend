@@ -1,9 +1,15 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Providers } from './providers';
 import { ServiceWorkerRegistration } from '@/components/offline/service-worker-registration';
 import { appConfig } from '@/config/app';
 import { canonicalUrlForPath, getSiteOrigin } from '@/lib/seo/site';
 import './globals.css';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#00B4D8',
+};
 
 const siteOrigin = getSiteOrigin();
 const homeCanonical = canonicalUrlForPath('/', siteOrigin);
@@ -25,7 +31,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_KE',
-    siteName: appConfig.name,
+    siteName: appConfig.companyBrandName,
     title: 'Rental & Property Management Software | JOMUGIT',
     description:
       'Manage rental estates, houses, tenants, rent collection, payment tracking and reporting in one property operations workspace.',

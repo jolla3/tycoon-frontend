@@ -3,7 +3,6 @@ import { appConfig } from '@/config/app';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    id: '/',
     name: appConfig.name,
     short_name: appConfig.shortName,
     description: appConfig.description,

@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { canonicalAlternates } from '@/lib/seo/site';
 
 export const metadata: Metadata = {
   title: 'Sign In',
@@ -8,7 +7,6 @@ export const metadata: Metadata = {
     index: false,
     follow: false,
   },
-  ...canonicalAlternates('/login'),
 };
 
 export default function LoginLayout({ children }: { children: React.ReactNode }) {
