@@ -2,16 +2,57 @@ import type { Metadata } from 'next';
 import { Providers } from './providers';
 import { ServiceWorkerRegistration } from '@/components/offline/service-worker-registration';
 import { appConfig } from '@/config/app';
+import { canonicalUrlForPath, getSiteOrigin } from '@/lib/seo/site';
 import './globals.css';
 
+const siteOrigin = getSiteOrigin();
+const homeCanonical = canonicalUrlForPath('/', siteOrigin);
+const socialImage = canonicalUrlForPath('/social-card', siteOrigin);
+
 export const metadata: Metadata = {
-  title: appConfig.name,
-  description: appConfig.description,
+  ...(siteOrigin ? { metadataBase: siteOrigin } : {}),
+  title: {
+    default: 'Rental & Property Management Software | JOMUGIT',
+    template: '%s | JOMUGIT',
+  },
+  description:
+    'Manage rental estates, houses, tenants, rent collection, payment tracking and reporting in one property operations workspace.',
+  applicationName: appConfig.name,
+  creator: appConfig.companyBrandName,
+  publisher: appConfig.legalCompanyName,
+  ...(homeCanonical ? { alternates: { canonical: homeCanonical } } : {}),
+  robots: { index: true, follow: true },
+  openGraph: {
+    type: 'website',
+    locale: 'en_KE',
+    siteName: appConfig.name,
+    title: 'Rental & Property Management Software | JOMUGIT',
+    description:
+      'Manage rental estates, houses, tenants, rent collection, payment tracking and reporting in one property operations workspace.',
+    ...(homeCanonical ? { url: homeCanonical } : {}),
+    ...(socialImage
+      ? {
+          images: [{
+            url: socialImage,
+            width: 1200,
+            height: 630,
+            alt: 'Rental and property management software published by JOMUGIT',
+          }],
+        }
+      : {}),
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Rental & Property Management Software | JOMUGIT',
+    description:
+      'Manage rental estates, houses, tenants, rent collection, payment tracking and reporting in one property operations workspace.',
+    ...(socialImage ? { images: [socialImage] } : {}),
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en-KE">
       <body>
         <Providers>
           <ServiceWorkerRegistration />

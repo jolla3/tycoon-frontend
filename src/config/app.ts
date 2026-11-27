@@ -1,15 +1,11 @@
-// src/config/app.ts
-//
-// SINGLE SOURCE for the product's display identity. The frontend does not
-// have a permanent product name yet — "Tycoon Estates" is the current
-// business/client context, not necessarily the final software brand.
-// Every place that would otherwise hardcode a name (topbar, sidebar,
-// footer, login, landing, <title>, notifications) must import from here.
-
+// Neutral application descriptor and publisher attribution.
+// The final product name and product subdomain have not been approved yet.
 export const appConfig = {
   name: 'Property Management',
   shortName: 'Property',
-  description: 'Property and rent management platform',
+  description: 'Manage rental estates, houses, tenants, rent collection, payment tracking and reporting in one property operations workspace.',
+  companyBrandName: 'JOMUGIT',
+  legalCompanyName: 'JOMUGIT CONSULTING LIMITED',
   supportEmail: 'support@example.com',
   currentYear: new Date().getFullYear(),
 } as const;
