@@ -1,10 +1,9 @@
 import type { Metadata } from 'next';
-import { appConfig } from '@/config/app';
 
-// The link token travels in the URL fragment. Keep the page out of search
-// indexes and never leak the address through the Referer header.
 export const metadata: Metadata = {
-  title: `Send your M-PESA message · ${appConfig.name}`,
+  title: 'Send your M-PESA message',
+  description: 'Submit the M-PESA confirmation message requested by your property manager.',
+  // One-time-link route: never expose it in search results or snippets.
   robots: { index: false, follow: false },
   referrer: 'no-referrer',
 };

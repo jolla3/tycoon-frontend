@@ -49,7 +49,7 @@ export default function LoginPage() {
     >
       <Paper sx={{ p: 4, width: '100%', maxWidth: 400 }} component="form" onSubmit={handleSubmit}>
         <Button component={Link} href="/" variant="text" size="small" sx={{ mb: 2, color: '#023E8A', alignSelf: 'flex-start' }}>
-          ← Back to Tycoon Estates
+          ← Back to home
         </Button>
         <Typography variant="h5" gutterBottom>
           {appConfig.name}

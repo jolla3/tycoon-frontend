@@ -3,11 +3,12 @@ import type { Metadata } from 'next';
 import { Box, Button } from '@mui/material';
 import { LegalDocument } from '@/components/legal/legal-document';
 import { privacyPolicyContent } from '@/content/privacy-policy';
-import { appConfig } from '@/config/app';
+import { canonicalAlternates } from '@/lib/seo/site';
 
 export const metadata: Metadata = {
-  title: `Privacy Policy · ${appConfig.name}`,
-  description: 'Privacy Policy for the property management platform operated by JOMUGIT CONSULTING LIMITED.',
+  title: 'Privacy Policy',
+  description: 'Privacy Policy for the rental and property management platform published by JOMUGIT CONSULTING LIMITED.',
+  ...canonicalAlternates('/privacy'),
 };
 
 export default function PrivacyPage() {
@@ -15,7 +16,7 @@ export default function PrivacyPage() {
     <>
       <Box sx={{ px: 2, pt: 2 }}>
         <Button component={Link} href="/" size="small" variant="text" sx={{ color: '#023E8A' }}>
-          ← Back to Tycoon Estates
+          ← Back to home
         </Button>
       </Box>
       <LegalDocument content={privacyPolicyContent} />
