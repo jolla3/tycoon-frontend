@@ -19,7 +19,7 @@ This decision governs public metadata and application identity until the softwar
 - Public Privacy and Terms pages are indexable and have distinct titles, accurate descriptions and canonical paths when a production site origin is configured.
 - Login is `noindex, nofollow`.
 - The public one-time-link `/pay` route is `noindex, nofollow`, uses `no-referrer`, and must never be included in sitemap or canonical URL output. Its token remains in the URL fragment, is cleared from the visible address bar by the existing page logic, and must not enter metadata, analytics, logs, or persistent storage.
-- All authenticated client-workspace routes under the dashboard route group and all SUPER_ADMIN platform routes are `noindex, nofollow`. Robots.txt disallow rules supplement these directives; they are not an access-control mechanism. Existing session authorization remains mandatory.
+- All authenticated client-workspace routes under the dashboard route group and all SUPER_ADMIN platform routes are `noindex, nofollow`. Robots.txt must not disallow routes whose page-level noindex directive crawlers need to read. Allow crawling so search engines can see the noindex metadata; robots.txt is not an access-control mechanism. Existing session authorization remains mandatory.
 - Do not generate metadata for pages that do not exist, and do not include private routes in the sitemap.
 - Do not add a `meta keywords` tag. It is not a search-indexing strategy.
 - Titles and descriptions must describe the real product category and actual capabilities. Do not add unverified feature, security, provider, customer-count or ranking claims.
@@ -45,7 +45,7 @@ This decision governs public metadata and application identity until the softwar
 2. The landing page has category-led title/description, Open Graph and X/Twitter large-image metadata, and publisher attribution.
 3. Canonicals are absolute and point to the configured production origin only; absent configuration never produces localhost or preview canonicals.
 4. Sitemap contains only the public landing, Privacy and Terms pages and is empty until a production origin is configured.
-5. Robots.txt references sitemap only when the production origin is configured and disallows private application paths without being treated as security.
+5. Robots.txt allows crawling of routes so search engines can read noindex metadata, and references sitemap only when the production origin is configured.
 6. The one-time payment link remains noindex/no-referrer and never enters canonical/sitemap metadata.
 7. Manifest, generic application icon, Apple icon and social cards contain no unapproved product name or invented subdomain.
 8. Organization structured data names the legal publisher correctly and does not claim an unapproved product identity.
@@ -54,7 +54,7 @@ This decision governs public metadata and application identity until the softwar
 ### Plan critique and implementation constraints
 
 - A permanent product name/domain is not required to implement most metadata. The wrong approach would be to hardcode a guessed brand or make Vercel preview URLs canonical.
-- Robots.txt disallow is not a privacy boundary and can prevent crawlers from seeing page-level noindex directives if used carelessly. Private pages therefore also emit `noindex` metadata; backend authorization remains the real protection.
+- Disallowing a private page in robots.txt can prevent crawlers from seeing its noindex directive. Do not disallow dashboard, platform, login or payment pages; let crawlers fetch the page metadata and see noindex. Backend authorization remains the real protection.
 - Sitemap generation without a stable absolute origin is misleading. Return no entries until `NEXT_PUBLIC_SITE_URL` is configured.
 - Do not publish generic WebSite/SoftwareApplication structured data with "Property Management" as if it were a distinctive final brand. Organization publisher attribution is the only currently safe entity.
 - Do not build a second theme or invent a corporate/product logo in this task. Reuse the existing palette and create a minimal generic category icon only.

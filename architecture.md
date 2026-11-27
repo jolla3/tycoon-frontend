@@ -32,10 +32,10 @@ Add a small server-side helper under `src/lib/seo/`:
 
 ### Crawler directives
 
-- `src/app/robots.ts` allows public pages and disallows the application entry points: login, pay, client workspace routes and platform control-plane routes.
+- `src/app/robots.ts` allows crawling so search engines can retrieve page-level noindex directives. Do not disallow login, pay, dashboard or platform routes: a robots disallow can hide the noindex directive from crawlers.
 - Include the absolute sitemap URL and host only when `NEXT_PUBLIC_SITE_URL` is valid and configured.
 - `src/app/sitemap.ts` returns only the public landing, Privacy and Terms entries; it returns an empty array when no site origin is configured.
-- Robots rules are not access control. Every dashboard/platform API and route continues to rely on the existing authentication/authorization middleware. Page-level noindex is emitted separately so crawlers can see the directive.
+- Robots rules are not access control. Every dashboard/platform API and route continues to rely on the existing authentication/authorization middleware. Keep the relevant paths crawlable so crawlers can see their page-level noindex directives.
 
 ### Icons, manifest and share images
 

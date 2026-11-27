@@ -7,7 +7,7 @@
 - **UI descriptor:** Property Management (temporary neutral descriptor only).
 - **Final product name and product subdomain:** undecided. Never promote "Tycoon" / "Tycoon Estates" to final metadata, site name, schema identity, social artwork or canonical URL. Do not invent a replacement.
 - Public landing, Privacy and Terms pages are indexable. Login, one-time-link `/pay`, authenticated dashboard routes and SUPER_ADMIN platform routes are `noindex, nofollow`. `/pay` also keeps `no-referrer`.
-- Robots.txt disallows private app paths as a crawler hint only. Authentication/authorization remains the security boundary.
+- Robots.txt allows crawling so search engines can read page-level noindex metadata; do not disallow login, pay, dashboard or platform routes. Authentication/authorization remains the security boundary.
 - `NEXT_PUBLIC_SITE_URL` is the only canonical public origin. If missing, omit metadataBase/canonicals, omit the robots sitemap reference and emit an empty sitemap. Never use localhost, Vercel preview hosts or guessed subdomains as canonicals.
 - Homepage social previews use category copy and JOMUGIT attribution; generic app icons do not claim to be the official company/product logo. Manifest values stay `Property Management` / `Property`; existing cyan palette `#00B4D8`.
 - Organization JSON-LD may identify JOMUGIT CONSULTING LIMITED (alternateName JOMUGIT). No WebSite or SoftwareApplication schema with a guessed product name/domain until owner-approved.
