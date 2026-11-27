@@ -1,4 +1,19 @@
-# Tycoon Estates frontend — short architecture handoff
+# Property Management frontend — short architecture handoff (product name undecided)
+
+## Metadata and product identity — 2026-11-27
+
+- **Company/publisher:** JOMUGIT CONSULTING LIMITED; public brand JOMUGIT.
+- **Product category:** rental and property management software.
+- **UI descriptor:** Property Management (temporary neutral descriptor only).
+- **Final product name and product subdomain:** undecided. Never promote "Tycoon" / "Tycoon Estates" to final metadata, site name, schema identity, social artwork or canonical URL. Do not invent a replacement.
+- Public landing, Privacy and Terms pages are indexable. Login, one-time-link `/pay`, authenticated dashboard routes and SUPER_ADMIN platform routes are `noindex, nofollow`. `/pay` also keeps `no-referrer`.
+- Robots.txt disallows private app paths as a crawler hint only. Authentication/authorization remains the security boundary.
+- `NEXT_PUBLIC_SITE_URL` is the only canonical public origin. If missing, omit metadataBase/canonicals, omit the robots sitemap reference and emit an empty sitemap. Never use localhost, Vercel preview hosts or guessed subdomains as canonicals.
+- Homepage social previews use category copy and JOMUGIT attribution; generic app icons do not claim to be the official company/product logo. Manifest values stay `Property Management` / `Property`; existing cyan palette `#00B4D8`.
+- Organization JSON-LD may identify JOMUGIT CONSULTING LIMITED (alternateName JOMUGIT). No WebSite or SoftwareApplication schema with a guessed product name/domain until owner-approved.
+- Do not add meta keywords, unsupported marketing claims, product rename, domain registration or redesign in this metadata branch.
+- Detailed requirements, route indexability matrix and acceptance criteria are in the 2026-11-27 metadata section of `PRD.md` and `architecture.md`.
+
 
 ## Current M-PESA frontend contract — 23 November 2026
 

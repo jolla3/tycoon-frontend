@@ -1,4 +1,66 @@
-# Tycoon Estates Frontend — Architecture Outline
+# Property Management Frontend — Architecture Outline (product name undecided)
+
+## Metadata, search identity and application assets — 2026-11-27
+
+### Identity boundary
+
+- Publisher/legal company: JOMUGIT CONSULTING LIMITED; public company brand: JOMUGIT.
+- Product category: rental and property management software.
+- Neutral UI descriptor: Property Management. It is a temporary descriptor, not an approved product brand.
+- Final product name and final product subdomain are undecided. The repository name and historical UI strings containing "Tycoon" do not authorize using Tycoon/Tycoon Estates as the final product identity in metadata, schema, social cards, manifest, icons or canonical URLs. Do not create a substitute name.
+- Company publisher identity and product identity are separate. The rental application is not the JOMUGIT corporate homepage.
+
+### Metadata architecture
+
+- Next.js App Router Metadata API remains the only metadata mechanism. Do not add a second head manager or hand-write duplicate title/description tags.
+- Root metadata owns the category-led default title/description, applicationName, creator/publisher, default Open Graph and X/Twitter metadata, locale and metadataBase when configured.
+- Public landing, login, Privacy, Terms and payment pages own route-specific metadata. Public legal pages have unique titles/descriptions. Login and payment pages are noindex.
+- Dashboard route-group layout and platform route-group layout export `robots: { index: false, follow: false }` so every nested authenticated route inherits noindex metadata.
+- Payment page preserves existing `noindex, nofollow` and `no-referrer`. No token or tenant-specific content is placed in metadata, social images, canonical URLs or sitemap.
+- The landing page emits Organization JSON-LD for publisher JOMUGIT CONSULTING LIMITED (alternateName JOMUGIT). Do not emit WebSite or SoftwareApplication schema with a placeholder product name or a guessed URL/logo.
+- Public landing, Privacy and Terms are the only sitemap entries. Login, payment, dashboard, platform and other authenticated routes are excluded.
+
+### Canonical origin helper
+
+Add a small server-side helper under `src/lib/seo/`:
+
+- Read only `NEXT_PUBLIC_SITE_URL`.
+- Accept an absolute `http:` or `https:` origin with pathname `/` and no query/hash. Fail with a clear configuration error for a malformed non-empty value.
+- Return no origin if unset. In that case, omit `metadataBase`, all canonical alternates and absolute sitemap/robots sitemap URLs. Do not fall back to localhost, `VERCEL_URL`, preview deployment URLs or a guessed subdomain.
+- Canonical helpers accept fixed internal paths and resolve them against the validated origin.
+- Deployment documentation must state that the production origin is configured only after the public product domain is approved and connected.
+
+### Crawler directives
+
+- `src/app/robots.ts` allows public pages and disallows the application entry points: login, pay, client workspace routes and platform control-plane routes.
+- Include the absolute sitemap URL and host only when `NEXT_PUBLIC_SITE_URL` is valid and configured.
+- `src/app/sitemap.ts` returns only the public landing, Privacy and Terms entries; it returns an empty array when no site origin is configured.
+- Robots rules are not access control. Every dashboard/platform API and route continues to rely on the existing authentication/authorization middleware. Page-level noindex is emitted separately so crawlers can see the directive.
+
+### Icons, manifest and share images
+
+- Add a minimal generic property/building SVG app icon and an Apple touch icon generated from the same neutral visual motif. These assets are not an official corporate logo or final product logo.
+- `src/app/manifest.ts` uses `Property Management` as name, `Property` as short_name, current theme colour `#00B4D8`, current light background `#F4F6F8`, and the generic icon assets.
+- Generate Open Graph and Twitter large-image cards using Next.js `ImageResponse` under the metadata file conventions. Card copy says rental/property management and shows JOMUGIT as publisher; it contains no Tycoon name, assumed product brand, domain, fake metrics or customer claims.
+- Respect image route conventions and ensure the outputs have declared PNG content types and dimensions.
+
+### Styling and implementation constraints
+
+- Reuse the palette already defined in `src/theme/theme.ts`; do not introduce a new theme or alter product layout.
+- Keep appConfig's display name neutral. Extend it with explicit legal-company/public-brand fields if useful; do not rename the product.
+- Use the metadata conventions in `src/app/layout.tsx`, route pages and route-group layouts. Do not render duplicate manual meta tags.
+- Avoid indexing /pay even though its one-time token is in a fragment. Fragment clearing and no-referrer behavior already implemented in the page/layout must remain intact.
+- Do not touch backend code, provider configuration, application authorization, billing, payments, tenant workflows, product naming or domain registration.
+
+### Verification
+
+- TypeScript typecheck and ESLint.
+- Unit tests for site-origin validation and canonical generation (missing origin, valid origin, invalid scheme, path/query/hash rejected).
+- Production build to validate Next metadata and image route conventions.
+- Inspect rendered HTML/route metadata for homepage, login, privacy, terms, pay, dashboard and platform routes.
+- Confirm robots.txt and sitemap output with and without `NEXT_PUBLIC_SITE_URL`.
+- Confirm Open Graph/Twitter images return PNG with expected dimensions.
+
 
 ## Authoritative M-PESA architecture correction — 2026-11-19
 

@@ -1,4 +1,65 @@
-# Tycoon Estates Frontend — Product Requirements
+# Property Management Frontend — Product Requirements (product name undecided)
+
+## Metadata, search identity and publisher boundary — 2026-11-27
+
+This decision governs public metadata and application identity until the software receives an owner-approved final product name and public domain.
+
+### Identity decisions
+
+- **Publisher/legal company:** JOMUGIT CONSULTING LIMITED.
+- **Public company brand:** JOMUGIT.
+- **Product category:** rental and property management software.
+- **Current UI descriptor:** Property Management. This is a neutral temporary descriptor, not a final product brand.
+- **Product name and product subdomain:** undecided. Do not treat "Tycoon" or "Tycoon Estates" as approved final product naming, canonical identity, social site name, icon wordmark, schema name, or domain. Do not invent a replacement.
+- Keep company attribution separate from product identity. Use JOMUGIT as the publisher/creator and the legal company name where a legal entity is required. Do not claim this product site is the corporate homepage.
+
+### Search and page metadata requirements
+
+- The public landing page is indexable and uses category-led wording about rental/property management software, with JOMUGIT as publisher/brand attribution.
+- Public Privacy and Terms pages are indexable and have distinct titles, accurate descriptions and canonical paths when a production site origin is configured.
+- Login is `noindex, nofollow`.
+- The public one-time-link `/pay` route is `noindex, nofollow`, uses `no-referrer`, and must never be included in sitemap or canonical URL output. Its token remains in the URL fragment, is cleared from the visible address bar by the existing page logic, and must not enter metadata, analytics, logs, or persistent storage.
+- All authenticated client-workspace routes under the dashboard route group and all SUPER_ADMIN platform routes are `noindex, nofollow`. Robots.txt disallow rules supplement these directives; they are not an access-control mechanism. Existing session authorization remains mandatory.
+- Do not generate metadata for pages that do not exist, and do not include private routes in the sitemap.
+- Do not add a `meta keywords` tag. It is not a search-indexing strategy.
+- Titles and descriptions must describe the real product category and actual capabilities. Do not add unverified feature, security, provider, customer-count or ranking claims.
+
+### Canonical origin and deployment boundary
+
+- `NEXT_PUBLIC_SITE_URL` is the single optional public site-origin input for canonical URLs, metadata base, robots sitemap reference and sitemap entries.
+- It must be an absolute HTTP(S) origin with no path, query or fragment. Production should set the final approved public product origin.
+- When the variable is absent, omit canonical and metadata-base URLs and return no sitemap entries. Never silently substitute localhost, a Vercel preview URL, or an assumed JOMUGIT subdomain.
+- Social image metadata and canonical URLs must not embed credentials, one-time tokens, tenant data or temporary preview hosts.
+
+### Social sharing and application identity
+
+- Generate neutral social preview cards using the category descriptor and JOMUGIT publisher attribution. Do not place an unapproved product name or domain in the images.
+- The generic application icon is a category-level property/building mark, not a replacement for the official JOMUGIT corporate logo or a final product logo.
+- Manifest name and short name remain neutral: `Property Management` and `Property`.
+- Use the existing application palette for the manifest theme colour (`#00B4D8`) and light background (`#F4F6F8`).
+- Structured data may identify the publisher as Organization with legal name JOMUGIT CONSULTING LIMITED and alternate name JOMUGIT. Do not publish a SoftwareApplication or WebSite entity with an assumed final product name, product URL, logo or sameAs links until those are owner-approved and verified.
+
+### Acceptance criteria
+
+1. Metadata exists for the landing, login, privacy, terms, payment, dashboard and platform route boundaries, with correct indexability.
+2. The landing page has category-led title/description, Open Graph and X/Twitter large-image metadata, and publisher attribution.
+3. Canonicals are absolute and point to the configured production origin only; absent configuration never produces localhost or preview canonicals.
+4. Sitemap contains only the public landing, Privacy and Terms pages and is empty until a production origin is configured.
+5. Robots.txt references sitemap only when the production origin is configured and disallows private application paths without being treated as security.
+6. The one-time payment link remains noindex/no-referrer and never enters canonical/sitemap metadata.
+7. Manifest, generic application icon, Apple icon and social cards contain no unapproved product name or invented subdomain.
+8. Organization structured data names the legal publisher correctly and does not claim an unapproved product identity.
+9. Typecheck, lint, tests and production build pass. Generated metadata routes are inspected from build output or rendered HTML before release.
+
+### Plan critique and implementation constraints
+
+- A permanent product name/domain is not required to implement most metadata. The wrong approach would be to hardcode a guessed brand or make Vercel preview URLs canonical.
+- Robots.txt disallow is not a privacy boundary and can prevent crawlers from seeing page-level noindex directives if used carelessly. Private pages therefore also emit `noindex` metadata; backend authorization remains the real protection.
+- Sitemap generation without a stable absolute origin is misleading. Return no entries until `NEXT_PUBLIC_SITE_URL` is configured.
+- Do not publish generic WebSite/SoftwareApplication structured data with "Property Management" as if it were a distinctive final brand. Organization publisher attribution is the only currently safe entity.
+- Do not build a second theme or invent a corporate/product logo in this task. Reuse the existing palette and create a minimal generic category icon only.
+- Do not broaden this work into product renaming, domain registration, landing-page redesign, authentication changes, or application behavior changes.
+
 
 ## Authoritative M-PESA product correction — 2026-11-19
 
