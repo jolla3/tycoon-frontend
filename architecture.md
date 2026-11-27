@@ -41,7 +41,7 @@ Add a small server-side helper under `src/lib/seo/`:
 
 - Add a minimal generic property/building SVG app icon and an Apple touch icon generated from the same neutral visual motif. These assets are not an official corporate logo or final product logo.
 - `src/app/manifest.ts` uses `Property Management` as name, `Property` as short_name, current theme colour `#00B4D8`, current light background `#F4F6F8`, and the generic icon assets.
-- Generate Open Graph and Twitter large-image cards using Next.js `ImageResponse` under the metadata file conventions. Card copy says rental/property management and shows JOMUGIT as publisher; it contains no Tycoon name, assumed product brand, domain, fake metrics or customer claims.
+- Generate one Open Graph/Twitter large-image endpoint at `src/app/social-card/route.tsx` using Next.js `ImageResponse`. Reference its absolute URL in metadata only when `NEXT_PUBLIC_SITE_URL` is configured; do not use the `opengraph-image`/`twitter-image` file conventions because their automatic relative image URLs can resolve against Next.js's localhost metadataBase fallback. Card copy says rental/property management and shows JOMUGIT as publisher; it contains no Tycoon name, assumed product brand, domain, fake metrics or customer claims.
 - Respect image route conventions and ensure the outputs have declared PNG content types and dimensions.
 
 ### Styling and implementation constraints
